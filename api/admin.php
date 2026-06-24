@@ -16,9 +16,12 @@ try {
             'routes' => prFetchRouteRules(),
             'roles' => prRoleLabels(),
             'companies' => prCompanies(),
+            'sites' => prSites(),
+            'initiator_departments' => prInitiatorDepartments(),
             'request_types' => prRequestTypes(),
             'item_categories' => prItemCategories(),
             'default_steps' => prDefaultRouteSteps(),
+            'route_presets' => prRoutePresets(),
         ]);
     }
 
@@ -35,6 +38,16 @@ try {
     if ($action === 'save_route') {
         $id = prSaveRouteRule($body['route'] ?? $body, (int)$user['id']);
         prApiResponse(true, ['id' => $id, 'routes' => prFetchRouteRules()]);
+    }
+
+    if ($action === 'delete_route') {
+        prDeleteRouteRule((int)($body['id'] ?? 0), (int)$user['id']);
+        prApiResponse(true, ['routes' => prFetchRouteRules()]);
+    }
+
+    if ($action === 'install_route_presets') {
+        $ids = prInstallRoutePresets((int)$user['id']);
+        prApiResponse(true, ['installed_ids' => $ids, 'routes' => prFetchRouteRules()]);
     }
 
     prApiResponse(false, ['errors' => ['Неизвестное действие администрирования.']], 400);

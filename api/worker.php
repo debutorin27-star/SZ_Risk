@@ -28,8 +28,20 @@ if (!is_array($job) || !hash_equals((string)($job['secret'] ?? ''), $secret)) {
     prJsonResponse(false, ['errors' => ['API job secret не совпадает.']], 403);
 }
 
-$target = (string)($job['target'] ?? '');
-$allowed = ['requests.php', 'tasks.php', 'admin.php'];
+function prWorkerNormalizeTarget(string $target): string
+{
+    $target = trim($target);
+    if ($target === '') {
+        return '';
+    }
+
+    $path = (string)(parse_url($target, PHP_URL_PATH) ?: $target);
+    $path = str_replace('\\', '/', $path);
+    return basename($path);
+}
+
+$target = prWorkerNormalizeTarget((string)($job['target'] ?? ''));
+$allowed = ['requests.php', 'tasks.php', 'admin.php', 'users.php'];
 if (!in_array($target, $allowed, true)) {
     prJsonResponse(false, ['errors' => ['Недопустимый API target.']], 400);
 }

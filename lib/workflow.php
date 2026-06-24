@@ -2,6 +2,7 @@
 
 require_once __DIR__ . '/storage.php';
 require_once __DIR__ . '/notifications.php';
+require_once __DIR__ . '/document.php';
 
 function prResolveRoute(array $request): array
 {
@@ -10,6 +11,14 @@ function prResolveRoute(array $request): array
     $siteKey = (string)($request['SITE_KEY'] ?? '');
     $requestType = (string)($request['REQUEST_TYPE'] ?? '');
     $amount = (float)($request['TOTAL_AMOUNT'] ?? 0);
+    $position = (string)($request['INITIATOR_POSITION'] ?? '');
+    $itemCategories = [];
+    foreach (is_array($request['ITEMS'] ?? null) ? $request['ITEMS'] : [] as $item) {
+        $category = (string)($item['CATEGORY'] ?? '');
+        if ($category !== '') {
+            $itemCategories[$category] = $category;
+        }
+    }
 
     $rs = prDb()->query("
         SELECT *
@@ -21,20 +30,77 @@ function prResolveRoute(array $request): array
           AND (MIN_AMOUNT IS NULL OR MIN_AMOUNT <= " . $amount . ")
           AND (MAX_AMOUNT IS NULL OR MAX_AMOUNT >= " . $amount . ")
         ORDER BY
+          SORT,
           CASE WHEN COMPANY_KEY = '" . prSql($companyKey) . "' THEN 0 ELSE 1 END,
           CASE WHEN SITE_KEY = '" . prSql($siteKey) . "' THEN 0 ELSE 1 END,
           CASE WHEN REQUEST_TYPE = '" . prSql($requestType) . "' THEN 0 ELSE 1 END,
-          SORT,
+          CASE WHEN INITIATOR_POSITION <> '' THEN 0 ELSE 1 END,
+          CASE WHEN ITEM_CATEGORY <> '' THEN 0 ELSE 1 END,
           ID
-        LIMIT 1
     ");
-    $rule = $rs->fetch();
+    $rule = null;
+    while ($candidate = $rs->fetch()) {
+        $candidatePosition = trim((string)($candidate['INITIATOR_POSITION'] ?? ''));
+        if ($candidatePosition !== '' && !prTextContains($position, $candidatePosition)) {
+            continue;
+        }
+
+        $candidateCategory = trim((string)($candidate['ITEM_CATEGORY'] ?? ''));
+        if ($candidateCategory !== '' && !isset($itemCategories[$candidateCategory])) {
+            continue;
+        }
+
+        $rule = $candidate;
+        break;
+    }
     if (!$rule) {
-        return prDefaultRouteSteps();
+        return prEnrichRouteSteps(prApplySpecialRouteRules(prDefaultRouteSteps(), $request), $request);
     }
 
     $steps = prJsonDecode($rule['STEPS_JSON'] ?? '[]');
-    return $steps ?: prDefaultRouteSteps();
+    return prEnrichRouteSteps(prApplySpecialRouteRules($steps ?: prDefaultRouteSteps(), $request), $request);
+}
+
+function prTextContains(string $haystack, string $needle): bool
+{
+    if ($needle === '') {
+        return true;
+    }
+    if (function_exists('mb_stripos')) {
+        return mb_stripos($haystack, $needle, 0, 'UTF-8') !== false;
+    }
+    return stripos($haystack, $needle) !== false;
+}
+
+function prRouteHasRole(array $steps, string $roleCode): bool
+{
+    foreach ($steps as $step) {
+        if ((string)($step['role'] ?? '') === $roleCode) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function prInsertRouteStepBefore(array $steps, array $step, array $beforeCodes): array
+{
+    $insertAt = count($steps);
+    foreach ($steps as $index => $existingStep) {
+        $code = (string)($existingStep['code'] ?? '');
+        $role = (string)($existingStep['role'] ?? '');
+        if (in_array($code, $beforeCodes, true) || in_array($role, $beforeCodes, true)) {
+            $insertAt = $index;
+            break;
+        }
+    }
+
+    array_splice($steps, $insertAt, 0, [$step]);
+    return $steps;
+}
+
+function prApplySpecialRouteRules(array $steps, array $request): array
+{
+    return $steps;
 }
 
 function prActiveItemIds(int $requestId, int $version): array
@@ -245,7 +311,12 @@ function prApplyTaskDecision(int $taskId, int $userId, string $decision, string 
         }
     }
 
-    if ((string)$task['ROLE_CODE'] === 'registrar' && !empty($registration['reg_number'])) {
+    $registeredByThisDecision = false;
+    if ((string)$task['ROLE_CODE'] === 'registrar' && $decision === 'approve' && trim((string)($registration['reg_number'] ?? '')) === '') {
+        throw new RuntimeException('Укажите регистрационный номер.');
+    }
+
+    if ((string)$task['ROLE_CODE'] === 'registrar' && $decision === 'approve' && !empty($registration['reg_number'])) {
         prDb()->queryExecute("
             UPDATE b_pr_requests
             SET REG_NUMBER = '" . prSql((string)$registration['reg_number']) . "',
@@ -254,13 +325,19 @@ function prApplyTaskDecision(int $taskId, int $userId, string $decision, string 
                 UPDATED_AT = NOW()
             WHERE ID = " . $requestId
         );
+        $registeredByThisDecision = true;
     }
+
+    $actorProfile = prUserProfileSummary($userId);
 
     prDbInsert('b_pr_decisions', [
         'REQUEST_ID' => $requestId,
         'TASK_ID' => $taskId,
         'VERSION' => $version,
         'USER_ID' => $userId,
+        'USER_NAME' => $actorProfile['name'],
+        'USER_POSITION' => $actorProfile['position'],
+        'USER_DEPARTMENT' => $actorProfile['department'],
         'ROLE_CODE' => (string)$task['ROLE_CODE'],
         'DECISION' => $decision,
         'ITEM_IDS' => prJsonEncode($itemIds),
@@ -280,6 +357,10 @@ function prApplyTaskDecision(int $taskId, int $userId, string $decision, string 
         'item_ids' => $itemIds,
         'comment' => $comment,
     ]);
+
+    if ($registeredByThisDecision) {
+        prGenerateRegisteredDocument($requestId, $userId);
+    }
 
     if ($decision === 'revision') {
         prDb()->queryExecute("UPDATE b_pr_requests SET STATUS = 'REVISION', UPDATED_AT = NOW() WHERE ID = " . $requestId);

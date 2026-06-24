@@ -176,3 +176,86 @@ function prCurrentUserName(int $userId, array $authState): string
 
     return $fio !== '' ? $fio : 'Пользователь #' . $userId;
 }
+
+function prFormatDepartmentValue($department): string
+{
+    $ids = [];
+    $labels = [];
+    if (is_array($department)) {
+        foreach ($department as $value) {
+            $value = trim((string)$value);
+            if ($value !== '') {
+                if (preg_match('/^\d+$/', $value)) {
+                    $ids[] = (int)$value;
+                } else {
+                    $labels[] = $value;
+                }
+            }
+        }
+    } elseif (trim((string)$department) !== '') {
+        foreach (preg_split('/\s*,\s*/', (string)$department) ?: [] as $value) {
+            $value = trim((string)$value);
+            if ($value !== '') {
+                if (preg_match('/^\d+$/', $value)) {
+                    $ids[] = (int)$value;
+                } else {
+                    $labels[] = $value;
+                }
+            }
+        }
+    }
+
+    $ids = array_values(array_filter(array_unique($ids)));
+    if (!$ids) {
+        return implode(', ', array_values(array_unique($labels)));
+    }
+
+    if (class_exists('CModule') && CModule::IncludeModule('iblock') && class_exists('CIBlockSection')) {
+        $names = [];
+        $rsSections = CIBlockSection::GetList(
+            ['NAME' => 'ASC'],
+            ['ID' => $ids],
+            false,
+            ['ID', 'NAME']
+        );
+        while ($section = $rsSections->Fetch()) {
+            $name = trim((string)($section['NAME'] ?? ''));
+            if ($name !== '') {
+                $names[] = $name;
+            }
+        }
+        if ($names) {
+            return implode(', ', array_values(array_unique(array_merge($labels, $names))));
+        }
+    }
+
+    return implode(', ', array_values(array_unique(array_merge($labels, array_map('strval', $ids)))));
+}
+
+function prCurrentUserProfile(int $userId, array $authState): array
+{
+    $profile = [
+        'position' => '',
+        'department' => '',
+        'email' => '',
+    ];
+
+    $restUser = is_array($authState['rest_user'] ?? null) ? $authState['rest_user'] : [];
+    if ($restUser) {
+        $profile['position'] = (string)($restUser['WORK_POSITION'] ?? $restUser['UF_WORK_POSITION'] ?? '');
+        $profile['email'] = (string)($restUser['EMAIL'] ?? '');
+    }
+
+    if ($userId > 0 && class_exists('CUser')) {
+        $rsUser = CUser::GetByID($userId);
+        $user = $rsUser ? $rsUser->Fetch() : false;
+        if ($user) {
+            $profile['position'] = (string)($user['WORK_POSITION'] ?? $profile['position']);
+            $profile['email'] = (string)($user['EMAIL'] ?? $profile['email']);
+
+            $profile['department'] = prFormatDepartmentValue($user['UF_DEPARTMENT'] ?? '');
+        }
+    }
+
+    return $profile;
+}

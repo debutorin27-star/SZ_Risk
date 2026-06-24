@@ -85,6 +85,7 @@ function prEnsureTables(): void
                 SITE_KEY varchar(80) NOT NULL DEFAULT '',
                 SITE_NAME varchar(255) NOT NULL DEFAULT '',
                 DEPARTMENT_NAME varchar(255) NOT NULL DEFAULT '',
+                INITIATOR_POSITION varchar(255) NOT NULL DEFAULT '',
                 PLACE_TEXT varchar(255) NOT NULL DEFAULT '',
                 REQUEST_TYPE varchar(32) NOT NULL DEFAULT 'goods',
                 TOTAL_AMOUNT decimal(18,2) NOT NULL DEFAULT 0,
@@ -95,6 +96,7 @@ function prEnsureTables(): void
                 COMMENT_TEXT text NULL,
                 REG_NUMBER varchar(128) NULL,
                 REG_DATE date NULL,
+                GENERATED_DOCUMENT_FILE_ID int NULL,
                 ROUTE_SNAPSHOT mediumtext NULL,
                 PRIMARY KEY (ID),
                 KEY IX_PR_REQ_INITIATOR (INITIATOR_ID),
@@ -103,6 +105,9 @@ function prEnsureTables(): void
             ) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         ");
     }
+
+    prEnsureColumn('b_pr_requests', 'INITIATOR_POSITION', "varchar(255) NOT NULL DEFAULT ''");
+    prEnsureColumn('b_pr_requests', 'GENERATED_DOCUMENT_FILE_ID', 'int NULL');
 
     if (!$db->isTableExists('b_pr_request_items')) {
         $db->queryExecute("
@@ -182,6 +187,9 @@ function prEnsureTables(): void
                 TASK_ID int NOT NULL,
                 VERSION int NOT NULL,
                 USER_ID int NOT NULL,
+                USER_NAME varchar(255) NOT NULL DEFAULT '',
+                USER_POSITION varchar(255) NOT NULL DEFAULT '',
+                USER_DEPARTMENT varchar(255) NOT NULL DEFAULT '',
                 ROLE_CODE varchar(80) NOT NULL,
                 DECISION varchar(32) NOT NULL,
                 ITEM_IDS text NULL,
@@ -193,6 +201,10 @@ function prEnsureTables(): void
             ) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         ");
     }
+
+    prEnsureColumn('b_pr_decisions', 'USER_NAME', "varchar(255) NOT NULL DEFAULT ''");
+    prEnsureColumn('b_pr_decisions', 'USER_POSITION', "varchar(255) NOT NULL DEFAULT ''");
+    prEnsureColumn('b_pr_decisions', 'USER_DEPARTMENT', "varchar(255) NOT NULL DEFAULT ''");
 
     if (!$db->isTableExists('b_pr_role_assignments')) {
         $db->queryExecute("
@@ -260,6 +272,15 @@ function prEnsureTables(): void
     }
 
     prEnsureDefaultRouteRule();
+}
+
+function prEnsureColumn(string $tableName, string $columnName, string $definition): void
+{
+    $row = prDb()->query("SHOW COLUMNS FROM " . $tableName . " LIKE '" . prSql($columnName) . "'")->fetch();
+    if ($row) {
+        return;
+    }
+    prDb()->queryExecute("ALTER TABLE " . $tableName . " ADD `" . str_replace('`', '``', $columnName) . "` " . $definition);
 }
 
 function prEnsureDefaultRouteRule(): void
@@ -377,6 +398,65 @@ function prDeleteRoleAssignment(int $id, int $adminUserId): void
     prAudit($adminUserId, 'role_assignment_delete', 'role_assignment', $id);
 }
 
+function prStorageFormatDepartmentValue($department): string
+{
+    if (function_exists('prFormatDepartmentValue')) {
+        return prFormatDepartmentValue($department);
+    }
+    if (is_array($department)) {
+        return implode(', ', array_filter(array_map('strval', $department)));
+    }
+    return (string)$department;
+}
+
+function prUserProfileSummary(int $userId, string $fallbackName = '', string $fallbackPosition = '', string $fallbackDepartment = ''): array
+{
+    $profile = [
+        'id' => $userId,
+        'name' => $fallbackName !== '' ? $fallbackName : ($userId > 0 ? 'Пользователь #' . $userId : ''),
+        'position' => $fallbackPosition,
+        'department' => $fallbackDepartment,
+    ];
+
+    if ($userId > 0 && class_exists('CUser')) {
+        $rsUser = CUser::GetByID($userId);
+        $user = $rsUser ? $rsUser->Fetch() : false;
+        if ($user) {
+            $fio = trim(implode(' ', array_filter([
+                (string)($user['LAST_NAME'] ?? ''),
+                (string)($user['NAME'] ?? ''),
+                (string)($user['SECOND_NAME'] ?? ''),
+            ])));
+            if ($fio !== '') {
+                $profile['name'] = $fio;
+            } elseif (!empty($user['LOGIN'])) {
+                $profile['name'] = (string)$user['LOGIN'];
+            }
+
+            if (!empty($user['WORK_POSITION'])) {
+                $profile['position'] = (string)$user['WORK_POSITION'];
+            }
+
+            $department = prStorageFormatDepartmentValue($user['UF_DEPARTMENT'] ?? '');
+            if ($department !== '') {
+                $profile['department'] = $department;
+            }
+        }
+    }
+
+    return $profile;
+}
+
+function prAssignmentProfile(array $assignment): array
+{
+    return prUserProfileSummary(
+        (int)($assignment['USER_ID'] ?? 0),
+        (string)($assignment['USER_NAME'] ?? ''),
+        (string)($assignment['POSITION_NAME'] ?? ''),
+        (string)($assignment['DEPARTMENT_NAME'] ?? '')
+    );
+}
+
 function prFetchRouteRules(): array
 {
     prEnsureTables();
@@ -387,6 +467,49 @@ function prFetchRouteRules(): array
         $rows[] = $row;
     }
     return $rows;
+}
+
+function prDeleteRouteRule(int $id, int $adminUserId): void
+{
+    prEnsureTables();
+    if ($id <= 0) {
+        return;
+    }
+    prDb()->queryExecute("DELETE FROM b_pr_route_rules WHERE ID = " . $id);
+    prAudit($adminUserId, 'route_rule_delete', 'route_rule', $id);
+}
+
+function prInstallRoutePresets(int $adminUserId): array
+{
+    prEnsureTables();
+    $installed = [];
+    foreach (prRoutePresets() as $preset) {
+        $title = (string)($preset['title'] ?? '');
+        if ($title === '') {
+            continue;
+        }
+        $exists = prDb()->query("SELECT ID FROM b_pr_route_rules WHERE TITLE = '" . prSql($title) . "' LIMIT 1")->fetch();
+        if ($exists) {
+            continue;
+        }
+
+        $installed[] = prSaveRouteRule([
+            'sort' => (int)($preset['sort'] ?? 100),
+            'title' => $title,
+            'company_key' => (string)($preset['company_key'] ?? ''),
+            'site_key' => (string)($preset['site_key'] ?? ''),
+            'request_type' => (string)($preset['request_type'] ?? ''),
+            'min_amount' => $preset['min_amount'] ?? '',
+            'max_amount' => $preset['max_amount'] ?? '',
+            'initiator_position' => (string)($preset['initiator_position'] ?? ''),
+            'item_category' => (string)($preset['item_category'] ?? ''),
+            'steps' => $preset['steps'] ?? prDefaultRouteSteps(),
+            'is_active' => 'Y',
+        ], $adminUserId);
+    }
+
+    prAudit($adminUserId, 'route_presets_install', 'route_rule', 0, ['installed_ids' => $installed]);
+    return $installed;
 }
 
 function prSaveRouteRule(array $data, int $adminUserId): int
@@ -503,9 +626,137 @@ function prGetRequest(int $requestId): ?array
         return null;
     }
     $request['ITEMS'] = prFetchRequestItems($requestId, (int)$request['CURRENT_VERSION']);
-    $request['ROUTE'] = prJsonDecode($request['ROUTE_SNAPSHOT'] ?? '[]');
+    $request['ROUTE'] = prEnrichRouteSteps(prJsonDecode($request['ROUTE_SNAPSHOT'] ?? '[]'), $request);
     $request['ATTACHMENTS'] = prFetchAttachments($requestId);
+    $request['TIMELINE'] = prFetchRequestTimeline($requestId);
     return $request;
+}
+
+function prFetchTaskAssigneesForStep(int $requestId, int $version, int $stepIndex): array
+{
+    if ($requestId <= 0 || $version <= 0) {
+        return [];
+    }
+
+    $rows = [];
+    $rs = prDb()->query("
+        SELECT DISTINCT ASSIGNED_USER_ID
+        FROM b_pr_tasks
+        WHERE REQUEST_ID = " . $requestId . "
+          AND VERSION = " . $version . "
+          AND STEP_INDEX = " . $stepIndex . "
+        ORDER BY ASSIGNED_USER_ID
+    ");
+    while ($row = $rs->fetch()) {
+        $profile = prUserProfileSummary((int)$row['ASSIGNED_USER_ID']);
+        if ($profile['id'] > 0) {
+            $rows[] = $profile;
+        }
+    }
+
+    return $rows;
+}
+
+function prRouteAssigneesForStep(array $request, int $stepIndex, array $step): array
+{
+    $taskAssignees = prFetchTaskAssigneesForStep(
+        (int)($request['ID'] ?? 0),
+        (int)($request['CURRENT_VERSION'] ?? 0),
+        $stepIndex
+    );
+    if ($taskAssignees) {
+        return $taskAssignees;
+    }
+
+    $roleCode = (string)($step['role'] ?? '');
+    if ($roleCode === '') {
+        return [];
+    }
+
+    $assignees = [];
+    foreach (prFindRoleUsers($roleCode, (string)($request['COMPANY_KEY'] ?? ''), (string)($request['SITE_KEY'] ?? '')) as $assignment) {
+        $profile = prAssignmentProfile($assignment);
+        if ($profile['id'] > 0) {
+            $assignees[] = $profile;
+        }
+    }
+
+    return $assignees;
+}
+
+function prEnrichRouteSteps(array $route, array $request): array
+{
+    $enriched = [];
+    foreach (array_values($route) as $index => $step) {
+        if (!is_array($step)) {
+            continue;
+        }
+        $step['assignees'] = prRouteAssigneesForStep($request, $index, $step);
+        $enriched[] = $step;
+    }
+    return $enriched;
+}
+
+function prFetchRequestTimeline(int $requestId): array
+{
+    prEnsureTables();
+    $events = [];
+
+    $rsTasks = prDb()->query("
+        SELECT ID, STEP_INDEX, STEP_CODE, STEP_TITLE, ROLE_CODE, ASSIGNED_USER_ID, STATUS, CREATED_AT, COMPLETED_AT
+        FROM b_pr_tasks
+        WHERE REQUEST_ID = " . $requestId . "
+        ORDER BY STEP_INDEX, ID
+    ");
+    while ($row = $rsTasks->fetch()) {
+        $profile = prUserProfileSummary((int)$row['ASSIGNED_USER_ID']);
+        $events[] = [
+            'type' => 'task',
+            'time' => (string)($row['CREATED_AT'] ?? ''),
+            'title' => (string)$row['STEP_TITLE'],
+            'status' => (string)$row['STATUS'],
+            'role' => (string)$row['ROLE_CODE'],
+            'user_id' => $profile['id'],
+            'user_name' => $profile['name'],
+            'user_position' => $profile['position'],
+            'user_department' => $profile['department'],
+            'task_id' => (int)$row['ID'],
+        ];
+    }
+
+    $rsDecisions = prDb()->query("
+        SELECT TASK_ID, USER_ID, USER_NAME, USER_POSITION, USER_DEPARTMENT, ROLE_CODE, DECISION, COMMENT_TEXT, CREATED_AT
+        FROM b_pr_decisions
+        WHERE REQUEST_ID = " . $requestId . "
+        ORDER BY CREATED_AT, ID
+    ");
+    while ($row = $rsDecisions->fetch()) {
+        $profile = prUserProfileSummary(
+            (int)$row['USER_ID'],
+            (string)($row['USER_NAME'] ?? ''),
+            (string)($row['USER_POSITION'] ?? ''),
+            (string)($row['USER_DEPARTMENT'] ?? '')
+        );
+        $events[] = [
+            'type' => 'decision',
+            'time' => (string)($row['CREATED_AT'] ?? ''),
+            'title' => 'Решение: ' . (string)$row['DECISION'],
+            'status' => (string)$row['DECISION'],
+            'role' => (string)$row['ROLE_CODE'],
+            'user_id' => $profile['id'],
+            'user_name' => $profile['name'],
+            'user_position' => $profile['position'],
+            'user_department' => $profile['department'],
+            'task_id' => (int)$row['TASK_ID'],
+            'comment' => (string)($row['COMMENT_TEXT'] ?? ''),
+        ];
+    }
+
+    usort($events, static function (array $a, array $b): int {
+        return strcmp((string)$a['time'], (string)$b['time']);
+    });
+
+    return $events;
 }
 
 function prFetchAttachments(int $requestId): array
@@ -700,6 +951,7 @@ function prSaveDraft(array $data, int $userId, string $userName): int
         'SITE_KEY' => $siteKey,
         'SITE_NAME' => $siteName,
         'DEPARTMENT_NAME' => (string)($data['department_name'] ?? ''),
+        'INITIATOR_POSITION' => (string)($data['initiator_position'] ?? ''),
         'PLACE_TEXT' => (string)($data['place_text'] ?? ''),
         'REQUEST_TYPE' => (string)($data['request_type'] ?? 'goods'),
         'TOTAL_AMOUNT' => $totalAmount,
@@ -785,7 +1037,8 @@ function prFetchUserTasks(int $userId): array
     prEnsureTables();
     $rows = [];
     $rs = prDb()->query("
-        SELECT t.*, r.INITIATOR_NAME, r.COMPANY_NAME, r.SITE_NAME, r.TOTAL_AMOUNT, r.CURRENCY, r.STATUS AS REQUEST_STATUS
+        SELECT t.*, r.INITIATOR_NAME, r.COMPANY_NAME, r.SITE_NAME, r.DEPARTMENT_NAME, r.INITIATOR_POSITION,
+               r.PLACE_TEXT, r.REQUEST_TYPE, r.JUSTIFICATION, r.TOTAL_AMOUNT, r.CURRENCY, r.STATUS AS REQUEST_STATUS
         FROM b_pr_tasks t
         INNER JOIN b_pr_requests r ON r.ID = t.REQUEST_ID
         WHERE t.ASSIGNED_USER_ID = " . $userId . " AND t.STATUS = 'OPEN'
@@ -794,6 +1047,14 @@ function prFetchUserTasks(int $userId): array
     ");
     while ($row = $rs->fetch()) {
         $row['AVAILABLE_ITEM_IDS_ARRAY'] = prJsonDecode($row['AVAILABLE_ITEM_IDS'] ?? '[]');
+        $items = prFetchRequestItems((int)$row['REQUEST_ID'], (int)$row['VERSION']);
+        $allowed = array_map('intval', $row['AVAILABLE_ITEM_IDS_ARRAY']);
+        if ($allowed) {
+            $items = array_values(array_filter($items, static function (array $item) use ($allowed): bool {
+                return in_array((int)$item['ID'], $allowed, true);
+            }));
+        }
+        $row['ITEMS'] = $items;
         $rows[] = $row;
     }
     return $rows;

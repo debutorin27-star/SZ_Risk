@@ -100,6 +100,7 @@ if (empty($authState['ok'])) {
 
             if (is_object($USER) && $USER->IsAuthorized()) {
                 $userId = (int)$USER->GetID();
+                $profile = prCurrentUserProfile($userId, ['source' => 'bitrix_session_fallback']);
                 prBootstrapResponse(true, [
                     'api_mode' => 'direct',
                     'user' => [
@@ -107,9 +108,15 @@ if (empty($authState['ok'])) {
                         'name' => prCurrentUserName($userId, ['source' => 'bitrix_session_fallback']),
                         'source' => 'bitrix_session_fallback',
                         'is_config_admin' => in_array($userId, PR_ADMIN_USER_IDS, true),
+                        'position' => $profile['position'],
+                        'department' => $profile['department'],
+                        'email' => $profile['email'],
                     ],
                     'dictionaries' => [
                         'companies' => prCompanies(),
+                        'sites' => prSites(),
+                        'initiator_profiles' => prInitiatorProfiles(),
+                        'initiator_departments' => prInitiatorDepartments(),
                         'request_types' => prRequestTypes(),
                         'item_categories' => prItemCategories(),
                         'units' => prUnits(),
@@ -132,6 +139,7 @@ if (empty($authState['ok'])) {
 }
 
 $userId = (int)($authState['user_id'] ?? 0);
+$profile = prCurrentUserProfile($userId, $authState);
 prBootstrapResponse(true, [
     'api_mode' => 'proxy',
     'user' => [
@@ -139,9 +147,15 @@ prBootstrapResponse(true, [
         'name' => prCurrentUserName($userId, $authState),
         'source' => (string)($authState['source'] ?? ''),
         'is_config_admin' => in_array($userId, PR_ADMIN_USER_IDS, true),
+        'position' => $profile['position'],
+        'department' => $profile['department'],
+        'email' => $profile['email'],
     ],
     'dictionaries' => [
         'companies' => prCompanies(),
+        'sites' => prSites(),
+        'initiator_profiles' => prInitiatorProfiles(),
+        'initiator_departments' => prInitiatorDepartments(),
         'request_types' => prRequestTypes(),
         'item_categories' => prItemCategories(),
         'units' => prUnits(),

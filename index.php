@@ -104,6 +104,13 @@ prLog('index', [
         .file-list a{color:var(--accent);text-decoration:none}
         .route-preview{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;margin-top:10px}
         .route-step{border:1px solid var(--line);border-radius:8px;padding:9px;background:#f8fafc}
+        .timeline{display:grid;gap:8px;margin-top:12px}
+        .timeline-item{display:grid;grid-template-columns:110px 1fr;gap:10px;border-left:3px solid var(--line);padding:8px 10px;background:#fff;border-radius:7px}
+        .timeline-item.done{border-left-color:var(--ok)}.timeline-item.open{border-left-color:var(--accent)}
+        .task-items{margin:10px 0;border:1px solid var(--line);border-radius:8px;background:#f8fafc;padding:8px}
+        .task-items ul{margin:6px 0 0;padding-left:18px}
+        .user-search-results{display:grid;gap:6px;margin-top:6px}
+        .user-search-results button{display:block;width:100%;text-align:left;background:#fff;color:var(--text);border:1px solid var(--line);font-weight:600}
         .task-list{display:grid;gap:10px}
         .task{border:1px solid var(--line);border-radius:8px;padding:12px;background:#fff}
         .task-head{display:flex;justify-content:space-between;gap:10px;margin-bottom:8px}
@@ -160,11 +167,13 @@ prLog('index', [
             </div>
             <form id="requestForm">
                 <input type="hidden" id="requestId">
+                <input type="hidden" id="companyKey" value="egida_plus">
                 <div class="grid">
-                    <div class="col-4"><label for="companyKey">Компания *</label><select id="companyKey" required></select></div>
-                    <div class="col-4"><label for="siteKey">Площадка</label><select id="siteKey"></select></div>
+                    <div class="col-4"><label for="siteKey">Площадка *</label><select id="siteKey" required></select></div>
                     <div class="col-4"><label for="requestType">Тип заявки *</label><select id="requestType" required></select></div>
-                    <div class="col-4"><label for="departmentName">Подразделение</label><input id="departmentName" type="text"></div>
+                    <div class="col-4"><label for="initiatorProfile">Инициатор / профиль</label><select id="initiatorProfile"></select></div>
+                    <div class="col-4"><label for="departmentName">Подразделение</label><select id="departmentName"></select></div>
+                    <div class="col-4"><label for="positionName">Должность</label><input id="positionName" type="text"></div>
                     <div class="col-4"><label for="placeText">Место обращения *</label><input id="placeText" type="text" required></div>
                     <div class="col-4"><label for="requiredDate">Желаемый срок</label><input id="requiredDate" type="date"></div>
                     <div class="col-6"><label for="justification">Обоснование *</label><textarea id="justification" required></textarea></div>
@@ -191,6 +200,7 @@ prLog('index', [
                 </div>
 
                 <div id="routePreview" class="route-preview"></div>
+                <div id="routeTimeline"></div>
                 <div class="actions">
                     <button type="button" class="secondary" id="previewRoute">Показать маршрут</button>
                     <button type="button" class="secondary" id="saveDraft">Сохранить черновик</button>
@@ -215,13 +225,14 @@ const PR_AUTH_CONTEXT = <?= json_encode($appAuthContext, JSON_UNESCAPED_UNICODE 
 const PR_AUTH_PAYLOAD = <?= json_encode($appAuthPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
 const initialRequestId = new URLSearchParams(location.search).get('request_id') || '';
 
-let dict = {companies:{}, request_types:{}, item_categories:{}, units:{}, roles:{}, statuses:{}};
+let dict = {companies:{}, sites:{}, initiator_profiles:{}, initiator_departments:[], request_types:{}, item_categories:{}, units:{}, roles:{}, statuses:{}};
 let currentItems = [];
 let selectedFiles = [];
 let adminCache = null;
 let apiMode = 'proxy';
 let runtimeAuthPayload = {...(PR_AUTH_PAYLOAD || {})};
 let bx24AuthPromise = null;
+let currentUser = {};
 
 const topStatus = document.getElementById('topStatus');
 const noticeBox = document.getElementById('noticeBox');
@@ -405,24 +416,51 @@ function bindTabs() {
 }
 
 function fillDictionaries() {
-    document.getElementById('companyKey').innerHTML = '<option value="">Выберите компанию</option>' + optionHtml(dict.companies);
-    const companyKeys = Object.keys(dict.companies || {});
-    if (companyKeys.length === 1) {
-        document.getElementById('companyKey').value = companyKeys[0];
-    }
+    document.getElementById('companyKey').value = 'egida_plus';
     document.getElementById('requestType').innerHTML = optionHtml(dict.request_types, 'goods');
-    renderSiteOptions();
+    renderSiteOptions('');
+    renderDepartmentOptions(currentUser.department || '');
+    renderInitiatorProfiles();
+    if (currentUser.position) document.getElementById('positionName').value = currentUser.position;
     if (!currentItems.length) addItemRow();
 }
 
 function renderSiteOptions(selected = '') {
-    const company = dict.companies[document.getElementById('companyKey').value] || null;
-    const sites = company && company.sites ? company.sites : {};
     const site = document.getElementById('siteKey');
-    site.innerHTML = '<option value="">Без площадки</option>' + optionHtml(sites, selected);
-    if (selected) {
-        site.value = selected;
-    }
+    site.innerHTML = '<option value="">Выберите площадку</option>' + optionHtml(dict.sites || {}, selected);
+    if (selected) site.value = selected;
+    renderDepartmentOptions(document.getElementById('departmentName').value || '');
+    renderInitiatorProfiles();
+}
+
+function renderDepartmentOptions(selected = '') {
+    const select = document.getElementById('departmentName');
+    const siteKey = document.getElementById('siteKey')?.value || '';
+    const profiles = (dict.initiator_profiles || {})[siteKey] || [];
+    const bySite = profiles.map(item => item.department || '').filter(Boolean);
+    const departments = bySite.length ? Array.from(new Set(bySite)).sort() : (Array.isArray(dict.initiator_departments) ? dict.initiator_departments : []);
+    const known = selected && departments.indexOf(selected) === -1 ? [selected].concat(departments) : departments;
+    select.innerHTML = '<option value="">Выберите подразделение</option>' + known.map(value => `<option value="${escapeHtml(value)}"${value === selected ? ' selected' : ''}>${escapeHtml(value)}</option>`).join('');
+}
+
+function renderInitiatorProfiles(selected = '') {
+    const siteKey = document.getElementById('siteKey').value;
+    const profiles = (dict.initiator_profiles || {})[siteKey] || [];
+    const profile = document.getElementById('initiatorProfile');
+    profile.innerHTML = '<option value="">Выберите из списка инициаторов</option>' + profiles.map((item, index) => {
+        const label = item.label || [item.department, item.position].filter(Boolean).join(' / ');
+        return `<option value="${index}"${String(index) === String(selected) ? ' selected' : ''}>${escapeHtml(label)}</option>`;
+    }).join('');
+}
+
+function applyInitiatorProfile() {
+    const siteKey = document.getElementById('siteKey').value;
+    const profiles = (dict.initiator_profiles || {})[siteKey] || [];
+    const item = profiles[Number(document.getElementById('initiatorProfile').value)] || null;
+    if (!item) return;
+    renderDepartmentOptions(item.department || '');
+    document.getElementById('departmentName').value = item.department || '';
+    document.getElementById('positionName').value = item.position || '';
 }
 
 function itemTemplate(item = {}) {
@@ -515,6 +553,7 @@ function collectRequest() {
         site_key: document.getElementById('siteKey').value,
         request_type: document.getElementById('requestType').value,
         department_name: document.getElementById('departmentName').value,
+        initiator_position: document.getElementById('positionName').value,
         place_text: document.getElementById('placeText').value,
         required_date: document.getElementById('requiredDate').value,
         justification: document.getElementById('justification').value,
@@ -537,8 +576,38 @@ function renderRoute(route) {
             <div class="badge">${index + 1}</div>
             <b>${escapeHtml(step.title || step.code || '')}</b>
             <div class="muted">${escapeHtml((dict.roles || {})[step.role] || step.role || '')}</div>
+            ${(step.assignees || []).length ? `<div class="muted">${(step.assignees || []).map(user => escapeHtml([user.name, user.position].filter(Boolean).join(' · '))).join('<br>')}</div>` : '<div class="muted">Согласующий не назначен</div>'}
         </div>
     `).join('');
+}
+
+function decisionLabel(status) {
+    const labels = {OPEN:'Открыто', DONE:'Выполнено', approve:'Согласовано', revision:'Возврат', reject:'Отклонено'};
+    return labels[status] || status || '';
+}
+
+function renderTimeline(timeline) {
+    const box = document.getElementById('routeTimeline');
+    if (!timeline || !timeline.length) {
+        box.innerHTML = '';
+        return;
+    }
+    box.innerHTML = `
+        <div class="subhead"><h2>История маршрута</h2></div>
+        <div class="timeline">
+            ${timeline.map(event => {
+                const cls = event.status === 'OPEN' ? 'open' : (event.type === 'decision' || event.status === 'DONE' ? 'done' : '');
+                return `<div class="timeline-item ${cls}">
+                    <div class="muted">${escapeHtml(event.time || '')}</div>
+                    <div>
+                        <b>${escapeHtml(event.title || '')}</b>
+                        <div class="muted">${escapeHtml((dict.roles || {})[event.role] || event.role || '')} · ${escapeHtml(decisionLabel(event.status))}</div>
+                        <div class="muted">${escapeHtml([event.user_name || (event.user_id ? 'Пользователь #' + event.user_id : ''), event.user_position || ''].filter(Boolean).join(' · '))}</div>
+                        ${event.comment ? `<div>${escapeHtml(event.comment)}</div>` : ''}
+                    </div>
+                </div>`;
+            }).join('')}
+        </div>`;
 }
 
 async function saveDraft() {
@@ -574,13 +643,13 @@ async function loadRequests() {
     }
     box.className = '';
     box.innerHTML = `<div class="table-wrap"><table><thead><tr>
-        <th>ID</th><th>Статус</th><th>Инициатор</th><th>Компания</th><th>Площадка</th><th>Сумма</th><th>Рег. номер</th><th></th>
+        <th>ID</th><th>Статус</th><th>Тип</th><th>Инициатор</th><th>Площадка</th><th>Сумма</th><th>Рег. номер</th><th></th>
     </tr></thead><tbody>${data.rows.map(row => `
         <tr>
             <td data-label="ID">#${escapeHtml(row.ID)}</td>
             <td data-label="Статус"><span class="badge">${escapeHtml(dict.statuses[row.STATUS] || row.STATUS)}</span></td>
+            <td data-label="Тип">${escapeHtml((dict.request_types || {})[row.REQUEST_TYPE] || row.REQUEST_TYPE || '')}</td>
             <td data-label="Инициатор">${escapeHtml(row.INITIATOR_NAME || '')}</td>
-            <td data-label="Компания">${escapeHtml(row.COMPANY_NAME || '')}</td>
             <td data-label="Площадка">${escapeHtml(row.SITE_NAME || '')}</td>
             <td data-label="Сумма">${escapeHtml(row.TOTAL_AMOUNT || '0')} ${escapeHtml(row.CURRENCY || '')}</td>
             <td data-label="Рег. номер">${escapeHtml(row.REG_NUMBER || '')}</td>
@@ -592,11 +661,13 @@ async function openRequest(id) {
     const data = await api('requests.php', {params:{action:'view', id}});
     const r = data.request;
     document.getElementById('requestId').value = r.ID || '';
-    document.getElementById('companyKey').value = r.COMPANY_KEY || '';
+    document.getElementById('companyKey').value = r.COMPANY_KEY || 'egida_plus';
     renderSiteOptions(r.SITE_KEY || '');
     document.getElementById('siteKey').value = r.SITE_KEY || '';
     document.getElementById('requestType').value = r.REQUEST_TYPE || 'goods';
+    renderDepartmentOptions(r.DEPARTMENT_NAME || '');
     document.getElementById('departmentName').value = r.DEPARTMENT_NAME || '';
+    document.getElementById('positionName').value = r.INITIATOR_POSITION || '';
     document.getElementById('placeText').value = r.PLACE_TEXT || '';
     document.getElementById('requiredDate').value = (r.REQUIRED_DATE || '').slice(0, 10);
     document.getElementById('justification').value = r.JUSTIFICATION || '';
@@ -611,6 +682,7 @@ async function openRequest(id) {
     }));
     renderItems();
     renderRoute(r.ROUTE || []);
+    renderTimeline(r.TIMELINE || []);
     renderExistingAttachments(r.ATTACHMENTS || []);
     document.querySelector('[data-view="newView"]').click();
 }
@@ -631,9 +703,23 @@ async function loadTasks() {
             <div class="task-head">
                 <div>
                     <b>Заявка #${escapeHtml(task.REQUEST_ID)}: ${escapeHtml(task.STEP_TITLE)}</b>
-                    <div class="muted">${escapeHtml(task.COMPANY_NAME || '')} ${escapeHtml(task.SITE_NAME || '')} · ${escapeHtml(task.TOTAL_AMOUNT || '0')} ${escapeHtml(task.CURRENCY || '')}</div>
+                    <div class="muted">${escapeHtml(task.SITE_NAME || '')} · ${escapeHtml(task.DEPARTMENT_NAME || '')} · ${escapeHtml(task.TOTAL_AMOUNT || '0')} ${escapeHtml(task.CURRENCY || '')}</div>
                 </div>
                 <span class="badge open">${escapeHtml((dict.roles || {})[task.ROLE_CODE] || task.ROLE_CODE)}</span>
+            </div>
+            <div class="task-items">
+                <b>Состав закупки</b>
+                ${(task.ITEMS || []).length ? `<ul>${(task.ITEMS || []).map(item => {
+                    const qty = Number(item.QUANTITY || 0);
+                    const price = Number(item.ESTIMATED_PRICE || 0);
+                    const amount = qty * price;
+                    return `<li>
+                        ${escapeHtml(item.NAME || '')}
+                        <span class="muted"> · ${escapeHtml(qty || '')} ${escapeHtml((dict.units || {})[item.UNIT] || item.UNIT || '')} · ${escapeHtml((dict.item_categories || {})[item.CATEGORY] || item.CATEGORY || '')}${price ? ' · ' + escapeHtml(price.toFixed(2)) + ' руб./ед.' : ''}${amount ? ' · ' + escapeHtml(amount.toFixed(2)) + ' руб.' : ''}</span>
+                        ${item.JUSTIFICATION ? `<div class="muted">${escapeHtml(item.JUSTIFICATION)}</div>` : ''}
+                    </li>`;
+                }).join('')}</ul>` : '<div class="muted">Строки не найдены.</div>'}
+                ${task.JUSTIFICATION ? `<div class="muted">Обоснование: ${escapeHtml(task.JUSTIFICATION)}</div>` : ''}
             </div>
             ${task.ROLE_CODE === 'warehouse' ? `
                 <div class="grid">
@@ -681,41 +767,161 @@ async function loadAdmin() {
     renderAdmin(data);
 }
 
+function optionsWithEmpty(map, emptyLabel, selected = '') {
+    const selectedAttr = selected === '' || selected === null || typeof selected === 'undefined' ? ' selected' : '';
+    return `<option value=""${selectedAttr}>${escapeHtml(emptyLabel)}</option>` + optionHtml(map || {}, selected);
+}
+
+function arrayOptions(values, emptyLabel, selected = '') {
+    const selectedAttr = selected === '' || selected === null || typeof selected === 'undefined' ? ' selected' : '';
+    return `<option value=""${selectedAttr}>${escapeHtml(emptyLabel)}</option>` + (values || []).map(value => `<option value="${escapeHtml(value)}"${value === selected ? ' selected' : ''}>${escapeHtml(value)}</option>`).join('');
+}
+
+function selectedRoute() {
+    const index = Number(document.getElementById('routeSelector')?.value || 0);
+    return (adminCache?.routes || [])[index] || {};
+}
+
+function fillRouteForm(route = {}) {
+    if (!document.getElementById('routeId')) return;
+    document.getElementById('routeId').value = route.ID || 0;
+    document.getElementById('routeTitle').value = route.TITLE || route.title || 'Маршрут';
+    document.getElementById('routeSort').value = route.SORT || route.sort || 100;
+    document.getElementById('routeSite').value = route.SITE_KEY || route.site_key || '';
+    document.getElementById('routeRequestType').value = route.REQUEST_TYPE || route.request_type || '';
+    document.getElementById('routeMinAmount').value = route.MIN_AMOUNT || route.min_amount || '';
+    document.getElementById('routeMaxAmount').value = route.MAX_AMOUNT || route.max_amount || '';
+    document.getElementById('routeInitiatorPosition').value = route.INITIATOR_POSITION || route.initiator_position || '';
+    document.getElementById('routeItemCategory').value = route.ITEM_CATEGORY || route.item_category || '';
+    document.getElementById('routeActive').checked = (route.IS_ACTIVE || route.is_active || 'Y') !== 'N';
+    document.getElementById('routeSteps').value = JSON.stringify(route.STEPS || route.steps || adminCache?.default_steps || [], null, 2);
+    const deleteButton = document.getElementById('deleteRoute');
+    if (deleteButton) deleteButton.disabled = !(route.ID || 0);
+}
+
+function selectAdminUser(user) {
+    document.getElementById('admUserId').value = user.id || '';
+    document.getElementById('admUserName').value = user.name || '';
+    if (user.department) {
+        const departmentSelect = document.getElementById('admDepartment');
+        if (![...departmentSelect.options].some(option => option.value === user.department)) {
+            departmentSelect.insertAdjacentHTML('afterbegin', `<option value="${escapeHtml(user.department)}">${escapeHtml(user.department)}</option>`);
+        }
+        departmentSelect.value = user.department;
+    }
+    if (user.position) document.getElementById('admPosition').value = user.position;
+    document.getElementById('admUserSummary').textContent = user.id ? `Выбран: #${user.id} ${user.name || ''}${user.email ? ' · ' + user.email : ''}` : '';
+    document.getElementById('admUserResults').innerHTML = '';
+}
+
+function renderAdminUserResults(users) {
+    const box = document.getElementById('admUserResults');
+    if (!users || !users.length) {
+        box.innerHTML = '<div class="muted">Пользователи не найдены.</div>';
+        return;
+    }
+    box.innerHTML = users.map(user => `<button type="button" data-admin-user='${escapeHtml(JSON.stringify(user))}'>
+        ${escapeHtml(user.name || ('Пользователь #' + user.id))}
+        <span class="muted">#${escapeHtml(user.id)}${user.position ? ' · ' + escapeHtml(user.position) : ''}${user.department ? ' · ' + escapeHtml(user.department) : ''}</span>
+    </button>`).join('');
+}
+
+async function searchAdminUsers() {
+    const query = document.getElementById('admUserSearch').value.trim();
+    const box = document.getElementById('admUserResults');
+    box.innerHTML = '<div class="muted">Ищем...</div>';
+    const data = await api('users.php', {params:{q:query}});
+    renderAdminUserResults(data.users || []);
+}
+
+function selectAdminUserViaBitrix() {
+    if (!window.BX24 || typeof BX24.selectUser !== 'function') {
+        showNotice('В этом размещении недоступен штатный выбор пользователя Bitrix24. Используйте поиск по ФИО.', 'error');
+        return;
+    }
+    BX24.selectUser(function (user) {
+        const id = user?.id || user?.ID || user?.USER_ID || 0;
+        const fallback = {
+            id,
+            name: user?.name || user?.NAME || user?.full_name || user?.FULL_NAME || '',
+            email: user?.email || user?.EMAIL || '',
+            position: user?.work_position || user?.WORK_POSITION || '',
+            department: ''
+        };
+        if (!id) {
+            selectAdminUser(fallback);
+            return;
+        }
+        api('users.php', {params:{q:id}}).then(data => {
+            selectAdminUser((data.users || [])[0] || fallback);
+        }).catch(() => selectAdminUser(fallback));
+    });
+}
+
 function renderAdmin(data) {
     const box = document.getElementById('adminContent');
     box.className = '';
     const roleOptions = optionHtml(data.roles);
-    const companyOptions = '<option value="">Все компании</option>' + optionHtml(data.companies);
+    const assignmentSiteOptions = optionsWithEmpty(data.sites || dict.sites, 'Все площадки');
+    const assignmentDepartmentOptions = arrayOptions(data.initiator_departments || dict.initiator_departments || [], 'Любое подразделение');
     const routes = data.routes || [];
+    const route = routes[0] || {};
+    const routeOptions = routes.length ? routes.map((item, index) => `<option value="${index}">${escapeHtml(item.TITLE || ('Маршрут #' + item.ID))}</option>`).join('') : '<option value="0">Новый маршрут</option>';
+    const presetOptions = '<option value="">Выберите шаблон</option>' + (data.route_presets || []).map(preset => `<option value="${escapeHtml(preset.code)}">${escapeHtml(preset.title)}</option>`).join('');
+    const routeSiteOptions = optionsWithEmpty(data.sites || dict.sites, 'Все площадки', route.SITE_KEY || '');
+    const routeRequestTypeOptions = optionsWithEmpty(data.request_types || dict.request_types, 'Любой тип', route.REQUEST_TYPE || '');
+    const routeCategoryOptions = optionsWithEmpty(data.item_categories || dict.item_categories, 'Любой вид строки', route.ITEM_CATEGORY || '');
     box.innerHTML = `
         <div class="admin-layout">
             <div class="stack">
                 <div class="admin-box">
                     <h2>Назначение роли</h2>
                     <label>Роль</label><select id="admRole">${roleOptions}</select>
-                    <label>ID пользователя Bitrix</label><input id="admUserId" type="number" min="1">
+                    <label>Поиск сотрудника</label>
+                    <div class="grid">
+                        <div class="col-8"><input id="admUserSearch" type="text" placeholder="ФИО, email, логин или ID"></div>
+                        <div class="col-4"><button type="button" class="light" id="admFindUser">Найти</button></div>
+                    </div>
+                    <div class="actions"><button type="button" class="light" id="admSelectUserBx">Выбрать в Bitrix24</button></div>
+                    <div id="admUserResults" class="user-search-results"></div>
+                    <div id="admUserSummary" class="muted"></div>
+                    <label>ID пользователя Bitrix</label><input id="admUserId" type="number" min="1" readonly>
                     <label>ФИО</label><input id="admUserName" type="text">
-                    <label>Компания</label><select id="admCompany">${companyOptions}</select>
-                    <label>Площадка</label><input id="admSite" type="text">
-                    <label>Подразделение</label><input id="admDepartment" type="text">
+                    <input type="hidden" id="admCompany" value="egida_plus">
+                    <label>Площадка</label><select id="admSite">${assignmentSiteOptions}</select>
+                    <label>Подразделение</label><select id="admDepartment">${assignmentDepartmentOptions}</select>
                     <label>Должность</label><input id="admPosition" type="text">
                     <div class="actions"><button type="button" id="saveAssignment">Сохранить назначение</button></div>
                 </div>
                 <div class="admin-box">
                     <h2>Маршрут</h2>
-                    <label>Название</label><input id="routeTitle" value="${escapeHtml(routes[0]?.TITLE || 'Базовый маршрут')}">
-                    <label>Шаги JSON</label><textarea id="routeSteps" class="json-area">${escapeHtml(JSON.stringify(routes[0]?.STEPS || data.default_steps || [], null, 2))}</textarea>
-                    <div class="actions"><button type="button" id="saveRoute">Сохранить маршрут</button></div>
+                    <label>Выбранный маршрут</label><select id="routeSelector">${routeOptions}</select>
+                    <label>Шаблон маршрута</label><select id="routePreset">${presetOptions}</select>
+                    <div class="actions"><button type="button" class="light" id="applyRoutePreset">Применить шаблон</button><button type="button" class="light" id="installRoutePresets">Завести типовые маршруты</button></div>
+                    <input type="hidden" id="routeId" value="${escapeHtml(route.ID || 0)}">
+                    <div class="grid">
+                        <div class="col-8"><label>Название</label><input id="routeTitle" value="${escapeHtml(route.TITLE || 'Базовый маршрут')}"></div>
+                        <div class="col-4"><label>Сортировка</label><input id="routeSort" type="number" value="${escapeHtml(route.SORT || 100)}"></div>
+                        <div class="col-6"><label>Площадка</label><select id="routeSite">${routeSiteOptions}</select></div>
+                        <div class="col-6"><label>Тип заявки</label><select id="routeRequestType">${routeRequestTypeOptions}</select></div>
+                        <div class="col-6"><label>Минимальная сумма</label><input id="routeMinAmount" type="number" min="0" step="0.01" value="${escapeHtml(route.MIN_AMOUNT || '')}"></div>
+                        <div class="col-6"><label>Максимальная сумма</label><input id="routeMaxAmount" type="number" min="0" step="0.01" value="${escapeHtml(route.MAX_AMOUNT || '')}"></div>
+                        <div class="col-6"><label>Должность инициатора содержит</label><input id="routeInitiatorPosition" value="${escapeHtml(route.INITIATOR_POSITION || '')}"></div>
+                        <div class="col-6"><label>Вид строки</label><select id="routeItemCategory">${routeCategoryOptions}</select></div>
+                    </div>
+                    <label><input id="routeActive" type="checkbox" ${route.IS_ACTIVE === 'N' ? '' : 'checked'} style="width:auto"> Активен</label>
+                    <label>Шаги маршрута JSON</label><textarea id="routeSteps" class="json-area">${escapeHtml(JSON.stringify(route.STEPS || data.default_steps || [], null, 2))}</textarea>
+                    <div class="actions"><button type="button" id="saveRoute">Сохранить маршрут</button><button type="button" class="light" id="newRoute">Новый маршрут</button><button type="button" class="danger" id="deleteRoute" ${route.ID ? '' : 'disabled'}>Удалить маршрут</button></div>
                 </div>
             </div>
             <div>
                 <h2>Текущие назначения</h2>
-                <div class="table-wrap"><table><thead><tr><th>Роль</th><th>Пользователь</th><th>Компания</th><th>Площадка</th><th>Должность</th><th></th></tr></thead><tbody>
+                <div class="table-wrap"><table><thead><tr><th>Роль</th><th>Пользователь</th><th>Площадка</th><th>Подразделение</th><th>Должность</th><th></th></tr></thead><tbody>
                     ${(data.assignments || []).map(row => `<tr>
                         <td data-label="Роль">${escapeHtml(data.roles[row.ROLE_CODE] || row.ROLE_CODE)}</td>
                         <td data-label="Пользователь">#${escapeHtml(row.USER_ID)} ${escapeHtml(row.USER_NAME || '')}</td>
-                        <td data-label="Компания">${escapeHtml(row.COMPANY_KEY || 'Все')}</td>
-                        <td data-label="Площадка">${escapeHtml(row.SITE_KEY || 'Все')}</td>
+                        <td data-label="Площадка">${escapeHtml((data.sites || {})[row.SITE_KEY] || row.SITE_KEY || 'Все')}</td>
+                        <td data-label="Подразделение">${escapeHtml(row.DEPARTMENT_NAME || 'Все')}</td>
                         <td data-label="Должность">${escapeHtml(row.POSITION_NAME || '')}</td>
                         <td data-label=""><button type="button" class="danger" data-delete-assignment="${escapeHtml(row.ID)}">Удалить</button></td>
                     </tr>`).join('')}
@@ -726,7 +932,8 @@ function renderAdmin(data) {
 
 function bindEvents() {
     bindTabs();
-    document.getElementById('companyKey').addEventListener('change', () => renderSiteOptions());
+    document.getElementById('siteKey').addEventListener('change', () => { renderDepartmentOptions(''); renderInitiatorProfiles(); });
+    document.getElementById('initiatorProfile').addEventListener('change', applyInitiatorProfile);
     document.getElementById('addItem').addEventListener('click', () => addItemRow());
     document.getElementById('itemsEditor').addEventListener('input', syncItemsFromDom);
     document.getElementById('itemsEditor').addEventListener('change', syncItemsFromDom);
@@ -754,10 +961,21 @@ function bindEvents() {
     });
     document.getElementById('saveDraft').addEventListener('click', () => saveDraft().catch(err => showNotice(err.message, 'error')));
     document.getElementById('requestForm').addEventListener('submit', e => { e.preventDefault(); submitRequest().catch(err => showNotice(err.message, 'error')); });
-    document.getElementById('resetRequest').addEventListener('click', () => { document.getElementById('requestForm').reset(); document.getElementById('requestId').value = ''; document.getElementById('attachmentsInput').value = ''; currentItems = []; selectedFiles = []; renderSiteOptions(); addItemRow(); renderSelectedFiles(); renderExistingAttachments([]); renderRoute([]); });
+    document.getElementById('resetRequest').addEventListener('click', () => { document.getElementById('requestForm').reset(); document.getElementById('requestId').value = ''; document.getElementById('companyKey').value = 'egida_plus'; document.getElementById('attachmentsInput').value = ''; currentItems = []; selectedFiles = []; fillDictionaries(); renderSelectedFiles(); renderExistingAttachments([]); renderRoute([]); renderTimeline([]); });
     document.getElementById('refreshRequests').addEventListener('click', () => loadRequests().catch(err => showNotice(err.message, 'error')));
     document.getElementById('refreshTasks').addEventListener('click', () => loadTasks().catch(err => showNotice(err.message, 'error')));
     document.getElementById('refreshAdmin').addEventListener('click', () => loadAdmin().catch(err => showNotice(err.message, 'error')));
+    document.body.addEventListener('keydown', e => {
+        if (e.target.id === 'admUserSearch' && e.key === 'Enter') {
+            e.preventDefault();
+            searchAdminUsers().catch(err => showNotice(err.message, 'error'));
+        }
+    });
+    document.body.addEventListener('change', e => {
+        if (e.target.id === 'routeSelector') {
+            fillRouteForm(selectedRoute());
+        }
+    });
     document.body.addEventListener('click', e => {
         const open = e.target.closest('[data-open-request]');
         if (open) openRequest(open.dataset.openRequest).catch(err => showNotice(err.message, 'error'));
@@ -765,21 +983,72 @@ function bindEvents() {
         if (decision) sendDecision(decision.closest('.task'), decision.dataset.decision).catch(err => showNotice(err.message, 'error'));
         const del = e.target.closest('[data-delete-assignment]');
         if (del) api('admin.php', {method:'POST', body:{action:'delete_assignment', id:Number(del.dataset.deleteAssignment)}}).then(loadAdmin).catch(err => showNotice(err.message, 'error'));
+        const foundUser = e.target.closest('[data-admin-user]');
+        if (foundUser) {
+            try {
+                selectAdminUser(JSON.parse(foundUser.dataset.adminUser));
+            } catch (err) {
+                showNotice('Не удалось прочитать выбранного пользователя.', 'error');
+            }
+        }
+        if (e.target.id === 'admFindUser') {
+            searchAdminUsers().catch(err => showNotice(err.message, 'error'));
+        }
+        if (e.target.id === 'admSelectUserBx') {
+            selectAdminUserViaBitrix();
+        }
         if (e.target.id === 'saveAssignment') {
             api('admin.php', {method:'POST', body:{action:'save_assignment', assignment:{
                 role_code: document.getElementById('admRole').value,
                 user_id: Number(document.getElementById('admUserId').value || 0),
                 user_name: document.getElementById('admUserName').value,
-                company_key: document.getElementById('admCompany').value,
+                company_key: 'egida_plus',
                 site_key: document.getElementById('admSite').value,
                 department_name: document.getElementById('admDepartment').value,
                 position_name: document.getElementById('admPosition').value
             }}}).then(loadAdmin).catch(err => showNotice(err.message, 'error'));
         }
+        if (e.target.id === 'newRoute') {
+            fillRouteForm({ID:0, TITLE:'Новый маршрут', SORT:100, IS_ACTIVE:'Y', STEPS:adminCache?.default_steps || []});
+        }
+        if (e.target.id === 'applyRoutePreset') {
+            const code = document.getElementById('routePreset').value;
+            const preset = (adminCache?.route_presets || []).find(item => item.code === code);
+            if (!preset) {
+                showNotice('Выберите шаблон маршрута.', 'error');
+                return;
+            }
+            fillRouteForm({...preset, ID:0, IS_ACTIVE:'Y'});
+        }
+        if (e.target.id === 'installRoutePresets') {
+            api('admin.php', {method:'POST', body:{action:'install_route_presets'}}).then(data => {
+                showNotice((data.installed_ids || []).length ? 'Типовые маршруты заведены.' : 'Типовые маршруты уже есть.', 'success');
+                return loadAdmin();
+            }).catch(err => showNotice(err.message, 'error'));
+        }
+        if (e.target.id === 'deleteRoute') {
+            const id = Number(document.getElementById('routeId').value || 0);
+            if (!id) return;
+            if (!confirm('Удалить выбранный маршрут? Активные заявки сохранят уже назначенный маршрут.')) return;
+            api('admin.php', {method:'POST', body:{action:'delete_route', id}}).then(loadAdmin).catch(err => showNotice(err.message, 'error'));
+        }
         if (e.target.id === 'saveRoute') {
             let steps;
             try { steps = JSON.parse(document.getElementById('routeSteps').value); } catch (err) { showNotice('Некорректный JSON маршрута.', 'error'); return; }
-            api('admin.php', {method:'POST', body:{action:'save_route', route:{id: adminCache?.routes?.[0]?.ID || 0, title: document.getElementById('routeTitle').value, steps}}}).then(loadAdmin).catch(err => showNotice(err.message, 'error'));
+            api('admin.php', {method:'POST', body:{action:'save_route', route:{
+                id: Number(document.getElementById('routeId').value || 0),
+                title: document.getElementById('routeTitle').value,
+                sort: Number(document.getElementById('routeSort').value || 100),
+                company_key: 'egida_plus',
+                site_key: document.getElementById('routeSite').value,
+                request_type: document.getElementById('routeRequestType').value,
+                min_amount: document.getElementById('routeMinAmount').value,
+                max_amount: document.getElementById('routeMaxAmount').value,
+                initiator_position: document.getElementById('routeInitiatorPosition').value,
+                item_category: document.getElementById('routeItemCategory').value,
+                is_active: document.getElementById('routeActive').checked ? 'Y' : 'N',
+                steps
+            }}}).then(loadAdmin).catch(err => showNotice(err.message, 'error'));
         }
     });
 }
@@ -790,6 +1059,7 @@ async function init() {
     const data = await api('bootstrap.php');
     apiMode = data.api_mode || (String(data.user?.source || '').indexOf('bitrix_session') !== -1 ? 'direct' : 'proxy');
     dict = data.dictionaries || dict;
+    currentUser = data.user || {};
     fillDictionaries();
     setStatus('Авторизация подтверждена. Пользователь #' + data.user.id + (hasBx24Auth ? ' · BX24 auth' : ''), 'success');
     await Promise.all([loadRequests(), loadTasks()]);

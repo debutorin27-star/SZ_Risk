@@ -160,10 +160,23 @@ function prProxyStageUploadedFiles(array $files, string $jobDir): array
     return $result;
 }
 
-$target = (string)($_GET['target'] ?? $_POST['target'] ?? '');
-$allowed = ['requests.php', 'tasks.php', 'admin.php'];
+function prProxyNormalizeTarget(string $target): string
+{
+    $target = trim($target);
+    if ($target === '') {
+        return '';
+    }
+
+    $path = (string)(parse_url($target, PHP_URL_PATH) ?: $target);
+    $path = str_replace('\\', '/', $path);
+    return basename($path);
+}
+
+$rawTarget = (string)($_GET['target'] ?? $_POST['target'] ?? '');
+$target = prProxyNormalizeTarget($rawTarget);
+$allowed = ['requests.php', 'tasks.php', 'admin.php', 'users.php'];
 if (!in_array($target, $allowed, true)) {
-    prProxyResponse(false, ['errors' => ['Недопустимый API target.']], 400);
+    prProxyResponse(false, ['errors' => ['Недопустимый API target.'], 'debug' => ['target' => $rawTarget]], 400);
 }
 
 $jobsDir = prApiJobsDir();
