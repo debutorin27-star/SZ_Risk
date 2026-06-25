@@ -115,6 +115,7 @@ if (empty($authState['ok'])) {
                     'dictionaries' => [
                         'companies' => prCompanies(),
                         'sites' => prSites(),
+                        'sites_by_company' => prSitesByCompany(),
                         'initiator_profiles' => prInitiatorProfiles(),
                         'initiator_departments' => prInitiatorDepartments(),
                         'request_types' => prRequestTypes(),
@@ -154,6 +155,7 @@ prBootstrapResponse(true, [
     'dictionaries' => [
         'companies' => prCompanies(),
         'sites' => prSites(),
+        'sites_by_company' => prSitesByCompany(),
         'initiator_profiles' => prInitiatorProfiles(),
         'initiator_departments' => prInitiatorDepartments(),
         'request_types' => prRequestTypes(),

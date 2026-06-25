@@ -611,18 +611,25 @@ function prIsProcessAdmin(int $userId): bool
         }
     }
 
-    $row = prDb()->query("
-        SELECT ID
+    $rs = prDb()->query("
+        SELECT ID, USER_ID, SUBSTITUTE_USER_ID
         FROM b_pr_role_assignments
         WHERE (USER_ID = " . $userId . " OR SUBSTITUTE_USER_ID = " . $userId . ")
           AND ROLE_CODE = 'process_admin'
           AND IS_ACTIVE = 'Y'
           AND (ACTIVE_FROM IS NULL OR ACTIVE_FROM <= CURDATE())
           AND (ACTIVE_TO IS NULL OR ACTIVE_TO >= CURDATE())
-        LIMIT 1
-    ")->fetch();
+    ");
+    while ($row = $rs->fetch()) {
+        if ((int)$row['USER_ID'] === $userId) {
+            return true;
+        }
+        if ((int)$row['SUBSTITUTE_USER_ID'] === $userId && prIsUserAbsentNow((int)$row['USER_ID'])) {
+            return true;
+        }
+    }
 
-    return (bool)$row;
+    return false;
 }
 
 function prFetchActiveUserRoleAssignments(int $userId, string $roleCode): array
@@ -644,6 +651,9 @@ function prFetchActiveUserRoleAssignments(int $userId, string $roleCode): array
         ORDER BY SITE_KEY, ID
     ");
     while ($row = $rs->fetch()) {
+        if ((int)$row['USER_ID'] !== $userId && !prIsUserAbsentNow((int)$row['USER_ID'])) {
+            continue;
+        }
         $rows[] = $row;
     }
     return $rows;
@@ -659,22 +669,125 @@ function prCanViewAllRequests(int $userId): bool
     return prIsProcessAdmin($userId) || prIsObserver($userId);
 }
 
-function prObserverSiteKeys(int $userId): array
+function prObserverScopes(int $userId): array
 {
-    $sites = [];
+    $scopes = [];
     foreach (prFetchActiveUserRoleAssignments($userId, 'observer') as $assignment) {
-        $sites[(string)($assignment['SITE_KEY'] ?? '')] = (string)($assignment['SITE_KEY'] ?? '');
+        $key = (string)($assignment['COMPANY_KEY'] ?? '') . '|' . (string)($assignment['SITE_KEY'] ?? '');
+        $scopes[$key] = [
+            'company_key' => (string)($assignment['COMPANY_KEY'] ?? ''),
+            'site_key' => (string)($assignment['SITE_KEY'] ?? ''),
+        ];
     }
-    return array_values($sites);
+    return array_values($scopes);
 }
 
-function prCanObserveSite(int $userId, string $siteKey): bool
+function prCanObserveRequestScope(int $userId, string $companyKey, string $siteKey): bool
 {
     if (prIsProcessAdmin($userId)) {
         return true;
     }
-    $sites = prObserverSiteKeys($userId);
-    return in_array('', $sites, true) || in_array($siteKey, $sites, true);
+    foreach (prObserverScopes($userId) as $scope) {
+        $scopeCompany = (string)($scope['company_key'] ?? '');
+        $scopeSite = (string)($scope['site_key'] ?? '');
+        $companyMatches = $scopeCompany === '' || $scopeCompany === $companyKey;
+        $siteMatches = $scopeSite === '' || $scopeSite === $siteKey;
+        if ($companyMatches && $siteMatches) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function prDateRangeContainsNow($from, $to): bool
+{
+    $now = time();
+    $fromText = trim((string)$from);
+    $toText = trim((string)$to);
+    if ($fromText !== '' && (preg_match('/^\d{4}-\d{2}-\d{2}$/', $fromText) || preg_match('/^\d{2}\.\d{2}\.\d{4}$/', $fromText))) {
+        $fromText .= ' 00:00:00';
+    }
+    if ($toText !== '' && (preg_match('/^\d{4}-\d{2}-\d{2}$/', $toText) || preg_match('/^\d{2}\.\d{2}\.\d{4}$/', $toText))) {
+        $toText .= ' 23:59:59';
+    }
+    $fromTime = $fromText !== '' ? strtotime($fromText) : 0;
+    $toTime = $toText !== '' ? strtotime($toText) : 0;
+    if ($fromTime > 0 && $fromTime > $now) {
+        return false;
+    }
+    if ($toTime > 0 && $toTime < $now) {
+        return false;
+    }
+    return $fromTime > 0 || $toTime > 0;
+}
+
+function prUserAbsenceRowsFromIntranet(int $userId): array
+{
+    if ($userId <= 0 || !class_exists('CModule') || !CModule::IncludeModule('intranet') || !class_exists('CIntranetUtils')) {
+        return [];
+    }
+
+    try {
+        if (method_exists('CIntranetUtils', 'GetAbsenceData')) {
+            $today = date('d.m.Y');
+            $rows = CIntranetUtils::GetAbsenceData([
+                'USERS' => [$userId],
+                'DATE_START' => $today,
+                'DATE_FINISH' => $today,
+                'PER_USER' => false,
+            ]);
+            return is_array($rows) ? $rows : [];
+        }
+    } catch (Throwable $e) {
+        prLog('absence', ['event' => 'intranet_absence_failed', 'user_id' => $userId, 'message' => $e->getMessage()]);
+    }
+
+    return [];
+}
+
+function prIsUserAbsentNow(int $userId): bool
+{
+    if ($userId <= 0) {
+        return false;
+    }
+
+    static $cache = [];
+    if (array_key_exists($userId, $cache)) {
+        return $cache[$userId];
+    }
+
+    foreach (prUserAbsenceRowsFromIntranet($userId) as $row) {
+        $rowUserId = (int)($row['USER_ID'] ?? $row['ID'] ?? $userId);
+        if ($rowUserId > 0 && $rowUserId !== $userId) {
+            continue;
+        }
+        if (prDateRangeContainsNow(
+            $row['DATE_ACTIVE_FROM'] ?? $row['DATE_FROM'] ?? $row['DATE_START'] ?? '',
+            $row['DATE_ACTIVE_TO'] ?? $row['DATE_TO'] ?? $row['DATE_FINISH'] ?? ''
+        )) {
+            return $cache[$userId] = true;
+        }
+    }
+
+    try {
+        $db = prDb();
+        if ($db->isTableExists('b_intranet_absence')) {
+            $row = $db->query("
+                SELECT ID
+                FROM b_intranet_absence
+                WHERE USER_ID = " . $userId . "
+                  AND (ACTIVE IS NULL OR ACTIVE = 'Y')
+                  AND (DATE_ACTIVE_FROM IS NULL OR DATE(DATE_ACTIVE_FROM) <= CURDATE())
+                  AND (DATE_ACTIVE_TO IS NULL OR DATE(DATE_ACTIVE_TO) >= CURDATE())
+                LIMIT 1
+            ")->fetch();
+            return $cache[$userId] = (bool)$row;
+        }
+    } catch (Throwable $e) {
+        prLog('absence', ['event' => 'table_absence_failed', 'user_id' => $userId, 'message' => $e->getMessage()]);
+    }
+
+    return $cache[$userId] = false;
 }
 
 function prFindRoleUsers(string $roleCode, string $companyKey = '', string $siteKey = ''): array
@@ -1103,7 +1216,7 @@ function prListRequests(int $userId, bool $isAdmin = false): array
     $rows = [];
     $rs = prDb()->query("
         SELECT ID, CREATED_AT, UPDATED_AT, STATUS, CURRENT_VERSION, INITIATOR_ID, INITIATOR_NAME,
-               COMPANY_NAME, SITE_NAME, REQUEST_TYPE, TOTAL_AMOUNT, CURRENCY, REG_NUMBER
+               COMPANY_KEY, COMPANY_NAME, SITE_NAME, REQUEST_TYPE, TOTAL_AMOUNT, CURRENCY, REG_NUMBER
         FROM b_pr_requests
         WHERE " . $where . "
         ORDER BY ID DESC
@@ -1131,15 +1244,31 @@ function prListAllRequests(int $userId, array $filter = []): array
     $where = ['1=1'];
 
     if (!prIsProcessAdmin($userId)) {
-        $sites = prObserverSiteKeys($userId);
-        if (!$sites) {
+        $scopes = prObserverScopes($userId);
+        if (!$scopes) {
             return [];
         }
-        if (!in_array('', $sites, true)) {
-            $quotedSites = array_map(static function (string $site): string {
-                return "'" . prSql($site) . "'";
-            }, $sites);
-            $where[] = "SITE_KEY IN (" . implode(', ', $quotedSites) . ")";
+        $scopeWhere = [];
+        foreach ($scopes as $scope) {
+            $companyKey = (string)($scope['company_key'] ?? '');
+            $siteKey = (string)($scope['site_key'] ?? '');
+            if ($companyKey === '' && $siteKey === '') {
+                $scopeWhere = [];
+                break;
+            }
+            $parts = [];
+            if ($companyKey !== '') {
+                $parts[] = "COMPANY_KEY = '" . prSql($companyKey) . "'";
+            }
+            if ($siteKey !== '') {
+                $parts[] = "SITE_KEY = '" . prSql($siteKey) . "'";
+            }
+            if ($parts) {
+                $scopeWhere[] = '(' . implode(' AND ', $parts) . ')';
+            }
+        }
+        if ($scopeWhere) {
+            $where[] = '(' . implode(' OR ', $scopeWhere) . ')';
         }
     }
 
@@ -1148,6 +1277,7 @@ function prListAllRequests(int $userId, array $filter = []): array
         $like = "'%" . prSql($q) . "%'";
         $search = [
             "INITIATOR_NAME LIKE " . $like,
+            "COMPANY_NAME LIKE " . $like,
             "SITE_NAME LIKE " . $like,
             "DEPARTMENT_NAME LIKE " . $like,
             "REG_NUMBER LIKE " . $like,
@@ -1159,7 +1289,7 @@ function prListAllRequests(int $userId, array $filter = []): array
         $where[] = '(' . implode(' OR ', $search) . ')';
     }
 
-    foreach (['status' => 'STATUS', 'site_key' => 'SITE_KEY', 'request_type' => 'REQUEST_TYPE'] as $inputKey => $column) {
+    foreach (['company_key' => 'COMPANY_KEY', 'status' => 'STATUS', 'site_key' => 'SITE_KEY', 'request_type' => 'REQUEST_TYPE'] as $inputKey => $column) {
         $value = trim((string)($filter[$inputKey] ?? ''));
         if ($value !== '') {
             $where[] = $column . " = '" . prSql($value) . "'";
@@ -1178,7 +1308,7 @@ function prListAllRequests(int $userId, array $filter = []): array
     $rows = [];
     $rs = prDb()->query("
         SELECT ID, CREATED_AT, UPDATED_AT, STATUS, CURRENT_VERSION, INITIATOR_ID, INITIATOR_NAME,
-               COMPANY_NAME, SITE_KEY, SITE_NAME, DEPARTMENT_NAME, REQUEST_TYPE, TOTAL_AMOUNT, CURRENCY, REG_NUMBER
+               COMPANY_KEY, COMPANY_NAME, SITE_KEY, SITE_NAME, DEPARTMENT_NAME, REQUEST_TYPE, TOTAL_AMOUNT, CURRENCY, REG_NUMBER
         FROM b_pr_requests
         WHERE " . implode(' AND ', $where) . "
         ORDER BY ID DESC
@@ -1192,23 +1322,30 @@ function prListAllRequests(int $userId, array $filter = []): array
 
 function prUserCanViewRequest(int $requestId, int $userId, bool $isAdmin = false): bool
 {
-    $row = prDb()->query("SELECT INITIATOR_ID, SITE_KEY FROM b_pr_requests WHERE ID = " . $requestId)->fetch();
+    $row = prDb()->query("SELECT INITIATOR_ID, COMPANY_KEY, SITE_KEY FROM b_pr_requests WHERE ID = " . $requestId)->fetch();
     if (!$row) {
         return false;
     }
-    if ($isAdmin && prCanObserveSite($userId, (string)($row['SITE_KEY'] ?? ''))) {
+    if ($isAdmin && prCanObserveRequestScope($userId, (string)($row['COMPANY_KEY'] ?? ''), (string)($row['SITE_KEY'] ?? ''))) {
         return true;
     }
     if ($row && (int)$row['INITIATOR_ID'] === $userId) {
         return true;
     }
-    $task = prDb()->query("
-        SELECT ID FROM b_pr_tasks
+    $rsTasks = prDb()->query("
+        SELECT ID, ASSIGNED_USER_ID, SUBSTITUTE_USER_ID FROM b_pr_tasks
         WHERE REQUEST_ID = " . $requestId . "
           AND (ASSIGNED_USER_ID = " . $userId . " OR SUBSTITUTE_USER_ID = " . $userId . ")
-        LIMIT 1
-    ")->fetch();
-    return (bool)$task;
+    ");
+    while ($task = $rsTasks->fetch()) {
+        if ((int)$task['ASSIGNED_USER_ID'] === $userId) {
+            return true;
+        }
+        if ((int)$task['SUBSTITUTE_USER_ID'] === $userId && prIsUserAbsentNow((int)$task['ASSIGNED_USER_ID'])) {
+            return true;
+        }
+    }
+    return false;
 }
 
 function prFetchUserTasks(int $userId): array
@@ -1226,7 +1363,11 @@ function prFetchUserTasks(int $userId): array
         LIMIT 200
     ");
     while ($row = $rs->fetch()) {
-        $row['IS_SUBSTITUTE'] = ((int)($row['SUBSTITUTE_USER_ID'] ?? 0) === $userId && (int)$row['ASSIGNED_USER_ID'] !== $userId) ? 'Y' : 'N';
+        $isSubstitute = (int)($row['SUBSTITUTE_USER_ID'] ?? 0) === $userId && (int)$row['ASSIGNED_USER_ID'] !== $userId;
+        if ($isSubstitute && !prIsUserAbsentNow((int)$row['ASSIGNED_USER_ID'])) {
+            continue;
+        }
+        $row['IS_SUBSTITUTE'] = $isSubstitute ? 'Y' : 'N';
         $row['AVAILABLE_ITEM_IDS_ARRAY'] = prJsonDecode($row['AVAILABLE_ITEM_IDS'] ?? '[]');
         $items = prFetchRequestItems((int)$row['REQUEST_ID'], (int)$row['VERSION']);
         $allowed = array_map('intval', $row['AVAILABLE_ITEM_IDS_ARRAY']);

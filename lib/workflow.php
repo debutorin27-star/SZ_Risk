@@ -141,7 +141,9 @@ function prCreateStepTasks(array $request, int $stepIndex, array $step, int $act
         if ($toUserId <= 0) {
             continue;
         }
-        $substituteUserId = (int)($assignee['SUBSTITUTE_USER_ID'] ?? 0);
+        $configuredSubstituteUserId = (int)($assignee['SUBSTITUTE_USER_ID'] ?? 0);
+        $substituteIsActive = $configuredSubstituteUserId > 0 && $configuredSubstituteUserId !== $toUserId && prIsUserAbsentNow($toUserId);
+        $substituteUserId = $configuredSubstituteUserId > 0 && $configuredSubstituteUserId !== $toUserId ? $configuredSubstituteUserId : 0;
         prDbInsert('b_pr_tasks', [
             'REQUEST_ID' => $requestId,
             'VERSION' => $version,
@@ -152,7 +154,7 @@ function prCreateStepTasks(array $request, int $stepIndex, array $step, int $act
             'ASSIGNED_USER_ID' => $toUserId,
             'ASSIGNED_USER_NAME' => (string)($assignee['USER_NAME'] ?? ''),
             'SUBSTITUTE_USER_ID' => $substituteUserId,
-            'SUBSTITUTE_USER_NAME' => (string)($assignee['SUBSTITUTE_USER_NAME'] ?? ''),
+            'SUBSTITUTE_USER_NAME' => $substituteUserId > 0 ? (string)($assignee['SUBSTITUTE_USER_NAME'] ?? '') : '',
             'STATUS' => 'OPEN',
             'AVAILABLE_ITEM_IDS' => prJsonEncode($itemIds),
             'CREATED_AT' => prNow(),
@@ -160,7 +162,7 @@ function prCreateStepTasks(array $request, int $stepIndex, array $step, int $act
         $taskId = (int)prDb()->getInsertedId();
         $created[] = $taskId;
         prNotifyUser($toUserId, $request, $step, $taskId);
-        if ($substituteUserId > 0 && $substituteUserId !== $toUserId) {
+        if ($substituteIsActive) {
             prNotifyUser($substituteUserId, $request, $step, $taskId);
         }
     }
@@ -274,7 +276,10 @@ function prApplyTaskDecision(int $taskId, int $userId, string $decision, string 
     prEnsureTables();
     $task = prFetchTask($taskId);
     $canAct = $task
-        && ((int)$task['ASSIGNED_USER_ID'] === $userId || (int)($task['SUBSTITUTE_USER_ID'] ?? 0) === $userId)
+        && (
+            (int)$task['ASSIGNED_USER_ID'] === $userId
+            || ((int)($task['SUBSTITUTE_USER_ID'] ?? 0) === $userId && prIsUserAbsentNow((int)$task['ASSIGNED_USER_ID']))
+        )
         && (string)$task['STATUS'] === 'OPEN';
     if (!$canAct) {
         throw new RuntimeException('Задание недоступно.');

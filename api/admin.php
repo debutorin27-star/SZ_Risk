@@ -17,6 +17,7 @@ try {
             'roles' => prRoleLabels(),
             'companies' => prCompanies(),
             'sites' => prSites(),
+            'sites_by_company' => prSitesByCompany(),
             'initiator_departments' => prInitiatorDepartments(),
             'request_types' => prRequestTypes(),
             'item_categories' => prItemCategories(),

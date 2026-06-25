@@ -78,6 +78,7 @@ function prRenderRegisteredDocumentHtml(array $request): string
         . '<div class="meta">'
         . '<div class="label">Регистрационный номер</div><div>' . prDocumentH($request['REG_NUMBER'] ?? '') . '</div>'
         . '<div class="label">Дата регистрации</div><div>' . prDocumentH($request['REG_DATE'] ?? '') . '</div>'
+        . '<div class="label">Компания</div><div>' . prDocumentH($request['COMPANY_NAME'] ?? '') . '</div>'
         . '<div class="label">Площадка</div><div>' . prDocumentH($request['SITE_NAME'] ?? '') . '</div>'
         . '<div class="label">Подразделение</div><div>' . prDocumentH($request['DEPARTMENT_NAME'] ?? '') . '</div>'
         . '<div class="label">Инициатор</div><div>' . prDocumentH($request['INITIATOR_NAME'] ?? '') . '</div>'

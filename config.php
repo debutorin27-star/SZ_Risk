@@ -41,10 +41,35 @@ function prCompanies(): array
     ];
 }
 
-function prSites(): array
+function prDefaultCompanyKey(): string
+{
+    $keys = array_keys(prCompanies());
+    return (string)($keys[0] ?? 'egida_plus');
+}
+
+function prSites(string $companyKey = ''): array
 {
     $companies = prCompanies();
-    return $companies['egida_plus']['sites'] ?? [];
+    if ($companyKey !== '') {
+        return $companies[$companyKey]['sites'] ?? [];
+    }
+
+    $sites = [];
+    foreach ($companies as $company) {
+        foreach (($company['sites'] ?? []) as $siteKey => $siteName) {
+            $sites[$siteKey] = $siteName;
+        }
+    }
+    return $sites;
+}
+
+function prSitesByCompany(): array
+{
+    $sites = [];
+    foreach (prCompanies() as $companyKey => $company) {
+        $sites[$companyKey] = $company['sites'] ?? [];
+    }
+    return $sites;
 }
 
 function prInitiatorProfiles(): array
