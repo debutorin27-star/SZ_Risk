@@ -33,14 +33,26 @@ function prFetchRequestDecisions(int $requestId): array
 try {
     if ($method === 'GET' && $action === 'list') {
         prApiResponse(true, [
-            'rows' => prListRequests((int)$user['id'], !empty($user['is_admin'])),
+            'rows' => prListRequests((int)$user['id']),
             'is_admin' => !empty($user['is_admin']),
+            'is_observer' => !empty($user['is_observer']),
+            'can_view_all' => !empty($user['can_view_all']),
+        ]);
+    }
+
+    if ($method === 'GET' && $action === 'all_list') {
+        if (empty($user['can_view_all'])) {
+            prApiResponse(false, ['errors' => ['Недостаточно прав для общего реестра заявок.']], 403);
+        }
+        prApiResponse(true, [
+            'rows' => prListAllRequests((int)$user['id'], $_GET),
+            'can_view_all' => true,
         ]);
     }
 
     if ($method === 'GET' && $action === 'view') {
         $requestId = (int)($_GET['id'] ?? 0);
-        if ($requestId <= 0 || !prUserCanViewRequest($requestId, (int)$user['id'], !empty($user['is_admin']))) {
+        if ($requestId <= 0 || !prUserCanViewRequest($requestId, (int)$user['id'], !empty($user['can_view_all']))) {
             prApiResponse(false, ['errors' => ['Заявка недоступна.']], 403);
         }
         $request = prGetRequest($requestId);

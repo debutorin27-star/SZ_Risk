@@ -178,6 +178,9 @@ function prEnsureTables(): void
             ) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         ");
     }
+    prEnsureColumn('b_pr_tasks', 'ASSIGNED_USER_NAME', "varchar(255) NOT NULL DEFAULT ''");
+    prEnsureColumn('b_pr_tasks', 'SUBSTITUTE_USER_ID', 'int NOT NULL DEFAULT 0');
+    prEnsureColumn('b_pr_tasks', 'SUBSTITUTE_USER_NAME', "varchar(255) NOT NULL DEFAULT ''");
 
     if (!$db->isTableExists('b_pr_decisions')) {
         $db->queryExecute("
@@ -228,6 +231,10 @@ function prEnsureTables(): void
             ) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         ");
     }
+    prEnsureColumn('b_pr_role_assignments', 'SUBSTITUTE_USER_ID', 'int NOT NULL DEFAULT 0');
+    prEnsureColumn('b_pr_role_assignments', 'SUBSTITUTE_USER_NAME', "varchar(255) NOT NULL DEFAULT ''");
+    prEnsureColumn('b_pr_role_assignments', 'SUBSTITUTE_POSITION_NAME', "varchar(255) NOT NULL DEFAULT ''");
+    prEnsureColumn('b_pr_role_assignments', 'SUBSTITUTE_DEPARTMENT_NAME', "varchar(255) NOT NULL DEFAULT ''");
 
     if (!$db->isTableExists('b_pr_route_rules')) {
         $db->queryExecute("
@@ -359,6 +366,10 @@ function prSaveRoleAssignment(array $data, int $adminUserId): int
         'SITE_KEY' => (string)($data['site_key'] ?? ''),
         'DEPARTMENT_NAME' => (string)($data['department_name'] ?? ''),
         'POSITION_NAME' => (string)($data['position_name'] ?? ''),
+        'SUBSTITUTE_USER_ID' => (int)($data['substitute_user_id'] ?? 0),
+        'SUBSTITUTE_USER_NAME' => (string)($data['substitute_user_name'] ?? ''),
+        'SUBSTITUTE_POSITION_NAME' => (string)($data['substitute_position_name'] ?? ''),
+        'SUBSTITUTE_DEPARTMENT_NAME' => (string)($data['substitute_department_name'] ?? ''),
         'ACTIVE_FROM' => !empty($data['active_from']) ? (string)$data['active_from'] : null,
         'ACTIVE_TO' => !empty($data['active_to']) ? (string)$data['active_to'] : null,
         'IS_ACTIVE' => !empty($data['is_active']) && $data['is_active'] === 'N' ? 'N' : 'Y',
@@ -374,6 +385,21 @@ function prSaveRoleAssignment(array $data, int $adminUserId): int
 
     if ($fields['USER_NAME'] === '') {
         $fields['USER_NAME'] = 'Пользователь #' . $fields['USER_ID'];
+    }
+    if ($fields['SUBSTITUTE_USER_ID'] <= 0) {
+        $fields['SUBSTITUTE_USER_ID'] = 0;
+        $fields['SUBSTITUTE_USER_NAME'] = '';
+        $fields['SUBSTITUTE_POSITION_NAME'] = '';
+        $fields['SUBSTITUTE_DEPARTMENT_NAME'] = '';
+    } elseif ($fields['SUBSTITUTE_USER_NAME'] === '') {
+        $substituteProfile = prUserProfileSummary((int)$fields['SUBSTITUTE_USER_ID']);
+        $fields['SUBSTITUTE_USER_NAME'] = $substituteProfile['name'];
+        if ($fields['SUBSTITUTE_POSITION_NAME'] === '') {
+            $fields['SUBSTITUTE_POSITION_NAME'] = $substituteProfile['position'];
+        }
+        if ($fields['SUBSTITUTE_DEPARTMENT_NAME'] === '') {
+            $fields['SUBSTITUTE_DEPARTMENT_NAME'] = $substituteProfile['department'];
+        }
     }
 
     if ($id > 0) {
@@ -454,6 +480,16 @@ function prAssignmentProfile(array $assignment): array
         (string)($assignment['USER_NAME'] ?? ''),
         (string)($assignment['POSITION_NAME'] ?? ''),
         (string)($assignment['DEPARTMENT_NAME'] ?? '')
+    );
+}
+
+function prAssignmentSubstituteProfile(array $assignment): array
+{
+    return prUserProfileSummary(
+        (int)($assignment['SUBSTITUTE_USER_ID'] ?? 0),
+        (string)($assignment['SUBSTITUTE_USER_NAME'] ?? ''),
+        (string)($assignment['SUBSTITUTE_POSITION_NAME'] ?? ''),
+        (string)($assignment['SUBSTITUTE_DEPARTMENT_NAME'] ?? '')
     );
 }
 
@@ -578,7 +614,7 @@ function prIsProcessAdmin(int $userId): bool
     $row = prDb()->query("
         SELECT ID
         FROM b_pr_role_assignments
-        WHERE USER_ID = " . $userId . "
+        WHERE (USER_ID = " . $userId . " OR SUBSTITUTE_USER_ID = " . $userId . ")
           AND ROLE_CODE = 'process_admin'
           AND IS_ACTIVE = 'Y'
           AND (ACTIVE_FROM IS NULL OR ACTIVE_FROM <= CURDATE())
@@ -587,6 +623,58 @@ function prIsProcessAdmin(int $userId): bool
     ")->fetch();
 
     return (bool)$row;
+}
+
+function prFetchActiveUserRoleAssignments(int $userId, string $roleCode): array
+{
+    prEnsureTables();
+    if ($userId <= 0 || $roleCode === '') {
+        return [];
+    }
+
+    $rows = [];
+    $rs = prDb()->query("
+        SELECT *
+        FROM b_pr_role_assignments
+        WHERE (USER_ID = " . $userId . " OR SUBSTITUTE_USER_ID = " . $userId . ")
+          AND ROLE_CODE = '" . prSql($roleCode) . "'
+          AND IS_ACTIVE = 'Y'
+          AND (ACTIVE_FROM IS NULL OR ACTIVE_FROM <= CURDATE())
+          AND (ACTIVE_TO IS NULL OR ACTIVE_TO >= CURDATE())
+        ORDER BY SITE_KEY, ID
+    ");
+    while ($row = $rs->fetch()) {
+        $rows[] = $row;
+    }
+    return $rows;
+}
+
+function prIsObserver(int $userId): bool
+{
+    return (bool)prFetchActiveUserRoleAssignments($userId, 'observer');
+}
+
+function prCanViewAllRequests(int $userId): bool
+{
+    return prIsProcessAdmin($userId) || prIsObserver($userId);
+}
+
+function prObserverSiteKeys(int $userId): array
+{
+    $sites = [];
+    foreach (prFetchActiveUserRoleAssignments($userId, 'observer') as $assignment) {
+        $sites[(string)($assignment['SITE_KEY'] ?? '')] = (string)($assignment['SITE_KEY'] ?? '');
+    }
+    return array_values($sites);
+}
+
+function prCanObserveSite(int $userId, string $siteKey): bool
+{
+    if (prIsProcessAdmin($userId)) {
+        return true;
+    }
+    $sites = prObserverSiteKeys($userId);
+    return in_array('', $sites, true) || in_array($siteKey, $sites, true);
 }
 
 function prFindRoleUsers(string $roleCode, string $companyKey = '', string $siteKey = ''): array
@@ -640,7 +728,7 @@ function prFetchTaskAssigneesForStep(int $requestId, int $version, int $stepInde
 
     $rows = [];
     $rs = prDb()->query("
-        SELECT DISTINCT ASSIGNED_USER_ID
+        SELECT DISTINCT ASSIGNED_USER_ID, ASSIGNED_USER_NAME, SUBSTITUTE_USER_ID, SUBSTITUTE_USER_NAME
         FROM b_pr_tasks
         WHERE REQUEST_ID = " . $requestId . "
           AND VERSION = " . $version . "
@@ -648,8 +736,12 @@ function prFetchTaskAssigneesForStep(int $requestId, int $version, int $stepInde
         ORDER BY ASSIGNED_USER_ID
     ");
     while ($row = $rs->fetch()) {
-        $profile = prUserProfileSummary((int)$row['ASSIGNED_USER_ID']);
+        $profile = prUserProfileSummary((int)$row['ASSIGNED_USER_ID'], (string)($row['ASSIGNED_USER_NAME'] ?? ''));
         if ($profile['id'] > 0) {
+            $substitute = prUserProfileSummary((int)($row['SUBSTITUTE_USER_ID'] ?? 0), (string)($row['SUBSTITUTE_USER_NAME'] ?? ''));
+            if ($substitute['id'] > 0) {
+                $profile['substitute'] = $substitute;
+            }
             $rows[] = $profile;
         }
     }
@@ -677,6 +769,10 @@ function prRouteAssigneesForStep(array $request, int $stepIndex, array $step): a
     foreach (prFindRoleUsers($roleCode, (string)($request['COMPANY_KEY'] ?? ''), (string)($request['SITE_KEY'] ?? '')) as $assignment) {
         $profile = prAssignmentProfile($assignment);
         if ($profile['id'] > 0) {
+            $substitute = prAssignmentSubstituteProfile($assignment);
+            if ($substitute['id'] > 0) {
+                $profile['substitute'] = $substitute;
+            }
             $assignees[] = $profile;
         }
     }
@@ -703,13 +799,15 @@ function prFetchRequestTimeline(int $requestId): array
     $events = [];
 
     $rsTasks = prDb()->query("
-        SELECT ID, STEP_INDEX, STEP_CODE, STEP_TITLE, ROLE_CODE, ASSIGNED_USER_ID, STATUS, CREATED_AT, COMPLETED_AT
+        SELECT ID, STEP_INDEX, STEP_CODE, STEP_TITLE, ROLE_CODE, ASSIGNED_USER_ID, ASSIGNED_USER_NAME,
+               SUBSTITUTE_USER_ID, SUBSTITUTE_USER_NAME, STATUS, CREATED_AT, COMPLETED_AT
         FROM b_pr_tasks
         WHERE REQUEST_ID = " . $requestId . "
         ORDER BY STEP_INDEX, ID
     ");
     while ($row = $rsTasks->fetch()) {
-        $profile = prUserProfileSummary((int)$row['ASSIGNED_USER_ID']);
+        $profile = prUserProfileSummary((int)$row['ASSIGNED_USER_ID'], (string)($row['ASSIGNED_USER_NAME'] ?? ''));
+        $substitute = prUserProfileSummary((int)($row['SUBSTITUTE_USER_ID'] ?? 0), (string)($row['SUBSTITUTE_USER_NAME'] ?? ''));
         $events[] = [
             'type' => 'task',
             'time' => (string)($row['CREATED_AT'] ?? ''),
@@ -720,6 +818,8 @@ function prFetchRequestTimeline(int $requestId): array
             'user_name' => $profile['name'],
             'user_position' => $profile['position'],
             'user_department' => $profile['department'],
+            'substitute_user_id' => $substitute['id'],
+            'substitute_user_name' => $substitute['name'],
             'task_id' => (int)$row['ID'],
         ];
     }
@@ -999,7 +1099,7 @@ function prSaveDraft(array $data, int $userId, string $userName): int
 function prListRequests(int $userId, bool $isAdmin = false): array
 {
     prEnsureTables();
-    $where = $isAdmin ? '1=1' : 'INITIATOR_ID = ' . $userId;
+    $where = 'INITIATOR_ID = ' . $userId;
     $rows = [];
     $rs = prDb()->query("
         SELECT ID, CREATED_AT, UPDATED_AT, STATUS, CURRENT_VERSION, INITIATOR_ID, INITIATOR_NAME,
@@ -1015,18 +1115,97 @@ function prListRequests(int $userId, bool $isAdmin = false): array
     return $rows;
 }
 
+function prFilterDateValue($value): string
+{
+    $value = trim((string)$value);
+    return preg_match('/^\d{4}-\d{2}-\d{2}$/', $value) ? $value : '';
+}
+
+function prListAllRequests(int $userId, array $filter = []): array
+{
+    prEnsureTables();
+    if (!prCanViewAllRequests($userId)) {
+        return [];
+    }
+
+    $where = ['1=1'];
+
+    if (!prIsProcessAdmin($userId)) {
+        $sites = prObserverSiteKeys($userId);
+        if (!$sites) {
+            return [];
+        }
+        if (!in_array('', $sites, true)) {
+            $quotedSites = array_map(static function (string $site): string {
+                return "'" . prSql($site) . "'";
+            }, $sites);
+            $where[] = "SITE_KEY IN (" . implode(', ', $quotedSites) . ")";
+        }
+    }
+
+    $q = trim((string)($filter['q'] ?? ''));
+    if ($q !== '') {
+        $like = "'%" . prSql($q) . "%'";
+        $search = [
+            "INITIATOR_NAME LIKE " . $like,
+            "SITE_NAME LIKE " . $like,
+            "DEPARTMENT_NAME LIKE " . $like,
+            "REG_NUMBER LIKE " . $like,
+            "JUSTIFICATION LIKE " . $like,
+        ];
+        if (preg_match('/^\d+$/', $q)) {
+            $search[] = 'ID = ' . (int)$q;
+        }
+        $where[] = '(' . implode(' OR ', $search) . ')';
+    }
+
+    foreach (['status' => 'STATUS', 'site_key' => 'SITE_KEY', 'request_type' => 'REQUEST_TYPE'] as $inputKey => $column) {
+        $value = trim((string)($filter[$inputKey] ?? ''));
+        if ($value !== '') {
+            $where[] = $column . " = '" . prSql($value) . "'";
+        }
+    }
+
+    $dateFrom = prFilterDateValue($filter['date_from'] ?? '');
+    if ($dateFrom !== '') {
+        $where[] = "CREATED_AT >= '" . prSql($dateFrom) . " 00:00:00'";
+    }
+    $dateTo = prFilterDateValue($filter['date_to'] ?? '');
+    if ($dateTo !== '') {
+        $where[] = "CREATED_AT <= '" . prSql($dateTo) . " 23:59:59'";
+    }
+
+    $rows = [];
+    $rs = prDb()->query("
+        SELECT ID, CREATED_AT, UPDATED_AT, STATUS, CURRENT_VERSION, INITIATOR_ID, INITIATOR_NAME,
+               COMPANY_NAME, SITE_KEY, SITE_NAME, DEPARTMENT_NAME, REQUEST_TYPE, TOTAL_AMOUNT, CURRENCY, REG_NUMBER
+        FROM b_pr_requests
+        WHERE " . implode(' AND ', $where) . "
+        ORDER BY ID DESC
+        LIMIT 500
+    ");
+    while ($row = $rs->fetch()) {
+        $rows[] = $row;
+    }
+    return $rows;
+}
+
 function prUserCanViewRequest(int $requestId, int $userId, bool $isAdmin = false): bool
 {
-    if ($isAdmin) {
+    $row = prDb()->query("SELECT INITIATOR_ID, SITE_KEY FROM b_pr_requests WHERE ID = " . $requestId)->fetch();
+    if (!$row) {
+        return false;
+    }
+    if ($isAdmin && prCanObserveSite($userId, (string)($row['SITE_KEY'] ?? ''))) {
         return true;
     }
-    $row = prDb()->query("SELECT INITIATOR_ID FROM b_pr_requests WHERE ID = " . $requestId)->fetch();
     if ($row && (int)$row['INITIATOR_ID'] === $userId) {
         return true;
     }
     $task = prDb()->query("
         SELECT ID FROM b_pr_tasks
-        WHERE REQUEST_ID = " . $requestId . " AND ASSIGNED_USER_ID = " . $userId . "
+        WHERE REQUEST_ID = " . $requestId . "
+          AND (ASSIGNED_USER_ID = " . $userId . " OR SUBSTITUTE_USER_ID = " . $userId . ")
         LIMIT 1
     ")->fetch();
     return (bool)$task;
@@ -1041,11 +1220,13 @@ function prFetchUserTasks(int $userId): array
                r.PLACE_TEXT, r.REQUEST_TYPE, r.JUSTIFICATION, r.TOTAL_AMOUNT, r.CURRENCY, r.STATUS AS REQUEST_STATUS
         FROM b_pr_tasks t
         INNER JOIN b_pr_requests r ON r.ID = t.REQUEST_ID
-        WHERE t.ASSIGNED_USER_ID = " . $userId . " AND t.STATUS = 'OPEN'
+        WHERE (t.ASSIGNED_USER_ID = " . $userId . " OR t.SUBSTITUTE_USER_ID = " . $userId . ")
+          AND t.STATUS = 'OPEN'
         ORDER BY t.CREATED_AT DESC, t.ID DESC
         LIMIT 200
     ");
     while ($row = $rs->fetch()) {
+        $row['IS_SUBSTITUTE'] = ((int)($row['SUBSTITUTE_USER_ID'] ?? 0) === $userId && (int)$row['ASSIGNED_USER_ID'] !== $userId) ? 'Y' : 'N';
         $row['AVAILABLE_ITEM_IDS_ARRAY'] = prJsonDecode($row['AVAILABLE_ITEM_IDS'] ?? '[]');
         $items = prFetchRequestItems((int)$row['REQUEST_ID'], (int)$row['VERSION']);
         $allowed = array_map('intval', $row['AVAILABLE_ITEM_IDS_ARRAY']);
@@ -1055,6 +1236,7 @@ function prFetchUserTasks(int $userId): array
             }));
         }
         $row['ITEMS'] = $items;
+        $row['ATTACHMENTS'] = prFetchAttachments((int)$row['REQUEST_ID']);
         $rows[] = $row;
     }
     return $rows;

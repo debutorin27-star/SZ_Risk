@@ -141,6 +141,7 @@ function prCreateStepTasks(array $request, int $stepIndex, array $step, int $act
         if ($toUserId <= 0) {
             continue;
         }
+        $substituteUserId = (int)($assignee['SUBSTITUTE_USER_ID'] ?? 0);
         prDbInsert('b_pr_tasks', [
             'REQUEST_ID' => $requestId,
             'VERSION' => $version,
@@ -149,6 +150,9 @@ function prCreateStepTasks(array $request, int $stepIndex, array $step, int $act
             'STEP_TITLE' => $stepTitle,
             'ROLE_CODE' => $roleCode,
             'ASSIGNED_USER_ID' => $toUserId,
+            'ASSIGNED_USER_NAME' => (string)($assignee['USER_NAME'] ?? ''),
+            'SUBSTITUTE_USER_ID' => $substituteUserId,
+            'SUBSTITUTE_USER_NAME' => (string)($assignee['SUBSTITUTE_USER_NAME'] ?? ''),
             'STATUS' => 'OPEN',
             'AVAILABLE_ITEM_IDS' => prJsonEncode($itemIds),
             'CREATED_AT' => prNow(),
@@ -156,6 +160,9 @@ function prCreateStepTasks(array $request, int $stepIndex, array $step, int $act
         $taskId = (int)prDb()->getInsertedId();
         $created[] = $taskId;
         prNotifyUser($toUserId, $request, $step, $taskId);
+        if ($substituteUserId > 0 && $substituteUserId !== $toUserId) {
+            prNotifyUser($substituteUserId, $request, $step, $taskId);
+        }
     }
 
     prAudit($actorUserId, 'workflow_step_tasks_created', 'request', $requestId, [
@@ -266,8 +273,15 @@ function prApplyTaskDecision(int $taskId, int $userId, string $decision, string 
 {
     prEnsureTables();
     $task = prFetchTask($taskId);
-    if (!$task || (int)$task['ASSIGNED_USER_ID'] !== $userId || (string)$task['STATUS'] !== 'OPEN') {
+    $canAct = $task
+        && ((int)$task['ASSIGNED_USER_ID'] === $userId || (int)($task['SUBSTITUTE_USER_ID'] ?? 0) === $userId)
+        && (string)$task['STATUS'] === 'OPEN';
+    if (!$canAct) {
         throw new RuntimeException('Задание недоступно.');
+    }
+
+    if ((string)$task['ROLE_CODE'] === 'registrar' && $decision === 'revision') {
+        throw new RuntimeException('Регистратор не может вернуть заявку на доработку.');
     }
 
     if (in_array($decision, ['reject', 'revision'], true) && trim($comment) === '') {

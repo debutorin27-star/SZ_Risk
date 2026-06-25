@@ -85,6 +85,8 @@ function prRequireApiUser(): array
         'name' => prCurrentUserName($userId, $authState),
         'auth_state' => $authState,
         'is_admin' => prIsProcessAdmin($userId),
+        'is_observer' => prIsObserver($userId),
+        'can_view_all' => prCanViewAllRequests($userId),
     ];
 }
 
