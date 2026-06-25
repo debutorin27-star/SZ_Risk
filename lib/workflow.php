@@ -155,7 +155,7 @@ function prCreateStepTasks(array $request, int $stepIndex, array $step, int $act
         ]);
         $taskId = (int)prDb()->getInsertedId();
         $created[] = $taskId;
-        prNotifyUser($toUserId, $requestId, $stepTitle);
+        prNotifyUser($toUserId, $request, $step, $taskId);
     }
 
     prAudit($actorUserId, 'workflow_step_tasks_created', 'request', $requestId, [

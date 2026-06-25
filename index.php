@@ -254,6 +254,17 @@ function escapeHtml(value) {
     return String(value ?? '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;');
 }
 
+function inputDateValue(value) {
+    if (!value) return '';
+    if (typeof value === 'string') return value.slice(0, 10);
+    if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString().slice(0, 10);
+    if (typeof value === 'object') {
+        const nested = value.date || value.DATE || value.value || value.VALUE || value.timestamp || '';
+        if (nested) return inputDateValue(nested);
+    }
+    return String(value).slice(0, 10);
+}
+
 function setStatus(text, type = '') {
     topStatus.className = 'top-status ' + type;
     topStatus.textContent = text;
@@ -669,7 +680,7 @@ async function openRequest(id) {
     document.getElementById('departmentName').value = r.DEPARTMENT_NAME || '';
     document.getElementById('positionName').value = r.INITIATOR_POSITION || '';
     document.getElementById('placeText').value = r.PLACE_TEXT || '';
-    document.getElementById('requiredDate').value = (r.REQUIRED_DATE || '').slice(0, 10);
+    document.getElementById('requiredDate').value = inputDateValue(r.REQUIRED_DATE);
     document.getElementById('justification').value = r.JUSTIFICATION || '';
     document.getElementById('commentText').value = r.COMMENT_TEXT || '';
     currentItems = (r.ITEMS || []).map(item => ({

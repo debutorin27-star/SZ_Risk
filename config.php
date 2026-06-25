@@ -8,6 +8,7 @@ const PR_APP_CODE = 'purchase_requests';
  * По требованию проекта стартовое значение: ID=1.
  */
 const PR_NOTIFY_FROM_USER_ID = 1;
+const PR_NOTIFY_MARKETPLACE_APP_ID = 49;
 
 /*
  * Первый административный доступ. После запуска администраторов процесса можно
