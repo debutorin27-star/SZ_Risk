@@ -8,6 +8,7 @@ define('NO_AGENT_CHECK', true);
 define('BX_SECURITY_SHOW_MESSAGE', true);
 define('DisableEventsCheck', true);
 define('BX_SECURITY_SKIP_FRAMECHECK', true);
+define('BX_SECURITY_SESSION_READONLY', true);
 
 $__prBootstrapBaseObLevel = ob_get_level();
 ob_start();

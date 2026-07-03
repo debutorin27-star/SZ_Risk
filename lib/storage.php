@@ -169,6 +169,7 @@ function prEnsureTables(): void
                 ASSIGNED_USER_ID int NOT NULL,
                 STATUS varchar(32) NOT NULL DEFAULT 'OPEN',
                 AVAILABLE_ITEM_IDS text NULL,
+                CHECKLIST_JSON mediumtext NULL,
                 DUE_AT datetime NULL,
                 CREATED_AT datetime NOT NULL,
                 COMPLETED_AT datetime NULL,
@@ -181,6 +182,7 @@ function prEnsureTables(): void
     prEnsureColumn('b_pr_tasks', 'ASSIGNED_USER_NAME', "varchar(255) NOT NULL DEFAULT ''");
     prEnsureColumn('b_pr_tasks', 'SUBSTITUTE_USER_ID', 'int NOT NULL DEFAULT 0');
     prEnsureColumn('b_pr_tasks', 'SUBSTITUTE_USER_NAME', "varchar(255) NOT NULL DEFAULT ''");
+    prEnsureColumn('b_pr_tasks', 'CHECKLIST_JSON', 'mediumtext NULL');
 
     if (!$db->isTableExists('b_pr_decisions')) {
         $db->queryExecute("
@@ -1410,6 +1412,17 @@ function prFetchUserTasks(int $userId): array
         }
         $row['IS_SUBSTITUTE'] = $isSubstitute ? 'Y' : 'N';
         $row['AVAILABLE_ITEM_IDS_ARRAY'] = prJsonDecode($row['AVAILABLE_ITEM_IDS'] ?? '[]');
+        $row['CHECKLIST'] = prJsonDecode($row['CHECKLIST_JSON'] ?? '[]');
+        $row['CHECKLIST_LABELS'] = prTaskChecklistLabels(
+            (string)($row['ROLE_CODE'] ?? ''),
+            (string)($row['REQUEST_TYPE'] ?? ''),
+            (string)($row['STEP_CODE'] ?? '')
+        );
+        $row['CHECKLIST_TITLE'] = prTaskChecklistTitle(
+            (string)($row['ROLE_CODE'] ?? ''),
+            (string)($row['REQUEST_TYPE'] ?? ''),
+            (string)($row['STEP_CODE'] ?? '')
+        );
         $items = prFetchRequestItems((int)$row['REQUEST_ID'], (int)$row['VERSION']);
         $items = array_values(array_filter($items, static function (array $item): bool {
             return (string)($item['FINAL_STATUS'] ?? 'ACTIVE') === 'ACTIVE';
@@ -1435,5 +1448,6 @@ function prFetchTask(int $taskId): ?array
         return null;
     }
     $row['AVAILABLE_ITEM_IDS_ARRAY'] = prJsonDecode($row['AVAILABLE_ITEM_IDS'] ?? '[]');
+    $row['CHECKLIST'] = prJsonDecode($row['CHECKLIST_JSON'] ?? '[]');
     return $row;
 }

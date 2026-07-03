@@ -31,6 +31,20 @@ try {
         ]);
     }
 
+    if ($method === 'POST' && $action === 'save_checklist') {
+        prSkipOpenExcludedWorkflowTasks((int)$user['id']);
+        $checklist = prSaveTaskChecklist(
+            (int)($body['task_id'] ?? 0),
+            (int)$user['id'],
+            is_array($body['checklist'] ?? null) ? $body['checklist'] : []
+        );
+        prApiResponse(true, [
+            'checklist' => $checklist,
+            'tasks' => prFetchUserTasks((int)$user['id']),
+            'message' => 'Чек-лист сохранен.',
+        ]);
+    }
+
     prApiResponse(false, ['errors' => ['Неизвестное действие заданий.']], 400);
 } catch (Throwable $e) {
     prLog('tasks_api', ['event' => 'exception', 'action' => $action, 'message' => $e->getMessage()]);

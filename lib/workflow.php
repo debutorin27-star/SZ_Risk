@@ -172,7 +172,7 @@ function prApplySpecialRouteRules(array $steps, array $request): array
     if ($requestType === 'raw_materials') {
         return [
             prWorkflowStep('profile_approval', 'profile_approver', 'Профильное согласование', 'APPROVAL'),
-            prWorkflowStep('production_chief', 'production_chief', 'Согласование начальником производства', 'APPROVAL'),
+            prWorkflowStep('plant_director', 'director', 'Согласование директором завода', 'APPROVAL'),
             prWorkflowStep('warehouse', 'warehouse', 'Проверка склада', 'WAREHOUSE'),
             prWorkflowStep('supply', 'supply', 'Задача снабжению', 'SUPPLY'),
             prWorkflowStep('initiator_acceptance', 'initiator', 'Приемка выполнения инициатором', 'ACCEPTANCE'),
@@ -181,12 +181,12 @@ function prApplySpecialRouteRules(array $steps, array $request): array
 
     if ($requestType === 'computers') {
         $route = [
-            prWorkflowStep('automation_head', 'automation_head', 'Согласование начальником отдела автоматизации', 'APPROVAL'),
+            prWorkflowStep('automation_approval', 'automation_head', 'Согласование начальником отдела автоматизации', 'APPROVAL'),
         ];
         if ($amount > PR_COMPUTERS_EXPENSE_CONTROL_LIMIT) {
             $route[] = prWorkflowStep('expense_control', 'expense_control', 'Контроль расходов', 'APPROVAL');
         }
-        $route[] = prWorkflowStep('supply', 'supply', 'Задача снабжению', 'SUPPLY');
+        $route[] = prWorkflowStep('automation_execution', 'automation_head', 'Исполнение заявки отделом автоматизации', 'EXECUTION');
         $route[] = prWorkflowStep('initiator_acceptance', 'initiator', 'Приемка выполнения инициатором', 'ACCEPTANCE');
         return $route;
     }
@@ -215,6 +215,7 @@ function prCreateStepTasks(array $request, int $stepIndex, array $step, int $act
     $requestId = (int)$request['ID'];
     $version = (int)$request['CURRENT_VERSION'];
     $roleCode = (string)($step['role'] ?? '');
+    $stepCode = (string)($step['code'] ?? $roleCode);
     $stepTitle = (string)($step['title'] ?? $roleCode);
     if (isset(prExcludedWorkflowRoles()[$roleCode])) {
         prAudit($actorUserId, 'workflow_excluded_role_skipped', 'request', $requestId, ['role' => $roleCode, 'step' => $step]);
@@ -259,7 +260,7 @@ function prCreateStepTasks(array $request, int $stepIndex, array $step, int $act
             'REQUEST_ID' => $requestId,
             'VERSION' => $version,
             'STEP_INDEX' => $stepIndex,
-            'STEP_CODE' => (string)($step['code'] ?? $roleCode),
+            'STEP_CODE' => $stepCode,
             'STEP_TITLE' => $stepTitle,
             'ROLE_CODE' => $roleCode,
             'ASSIGNED_USER_ID' => $toUserId,
@@ -268,6 +269,7 @@ function prCreateStepTasks(array $request, int $stepIndex, array $step, int $act
             'SUBSTITUTE_USER_NAME' => $substituteUserId > 0 ? (string)($assignee['SUBSTITUTE_USER_NAME'] ?? '') : '',
             'STATUS' => 'OPEN',
             'AVAILABLE_ITEM_IDS' => prJsonEncode($itemIds),
+            'CHECKLIST_JSON' => prTaskChecklistLabels($roleCode, (string)($request['REQUEST_TYPE'] ?? ''), $stepCode) ? prJsonEncode([]) : null,
             'CREATED_AT' => prNow(),
         ]);
         $taskId = (int)prDb()->getInsertedId();
@@ -384,6 +386,15 @@ function prEnsureRequestRegistration(int $requestId, int $actorUserId): void
     }
 }
 
+function prWorkflowStepNeedsRegistration(array $step): bool
+{
+    $roleCode = (string)($step['role'] ?? '');
+    $status = (string)($step['status'] ?? '');
+    $stepCode = (string)($step['code'] ?? '');
+
+    return $roleCode === 'supply' || $status === 'EXECUTION' || $stepCode === 'automation_execution';
+}
+
 function prAdvanceWorkflowIfReady(int $requestId, int $version, int $stepIndex, int $actorUserId): void
 {
     if (prStepHasOpenTasks($requestId, $version, $stepIndex)) {
@@ -424,7 +435,7 @@ function prAdvanceWorkflowIfReady(int $requestId, int $version, int $stepIndex, 
         return;
     }
 
-    if ((string)($nextStep['role'] ?? '') === 'supply') {
+    if (prWorkflowStepNeedsRegistration($nextStep)) {
         prEnsureRequestRegistration($requestId, $actorUserId);
     }
 
@@ -484,6 +495,68 @@ function prSkipOpenExcludedWorkflowTasks(int $actorUserId): void
     }
 }
 
+function prTaskCanBeEditedByUser(?array $task, int $userId): bool
+{
+    return $task
+        && (
+            (int)$task['ASSIGNED_USER_ID'] === $userId
+            || ((int)($task['SUBSTITUTE_USER_ID'] ?? 0) === $userId && prIsUserAbsentNow((int)$task['ASSIGNED_USER_ID']))
+        )
+        && (string)$task['STATUS'] === 'OPEN';
+}
+
+function prChecklistContextForTask(array $task): array
+{
+    $request = prGetRequest((int)$task['REQUEST_ID']);
+    $requestType = (string)($request['REQUEST_TYPE'] ?? '');
+    $roleCode = (string)($task['ROLE_CODE'] ?? '');
+    $stepCode = (string)($task['STEP_CODE'] ?? '');
+
+    return [
+        'request' => $request,
+        'labels' => prTaskChecklistLabels($roleCode, $requestType, $stepCode),
+        'title' => prTaskChecklistTitle($roleCode, $requestType, $stepCode),
+    ];
+}
+
+function prNormalizeTaskChecklist(array $labels, array $currentChecklist, array $incomingChecklist): array
+{
+    $result = [];
+    foreach ($labels as $key => $label) {
+        $result[$key] = !empty($currentChecklist[$key]);
+        if (array_key_exists($key, $incomingChecklist)) {
+            $result[$key] = !empty($incomingChecklist[$key]);
+        }
+    }
+    return $result;
+}
+
+function prSaveTaskChecklist(int $taskId, int $userId, array $checklist): array
+{
+    prEnsureTables();
+    $task = prFetchTask($taskId);
+    if (!prTaskCanBeEditedByUser($task, $userId)) {
+        throw new RuntimeException('Задание недоступно.');
+    }
+
+    $context = prChecklistContextForTask($task);
+    $labels = $context['labels'];
+    if (!$labels) {
+        throw new RuntimeException('Для этого задания чек-лист не предусмотрен.');
+    }
+
+    $savedChecklist = prNormalizeTaskChecklist($labels, is_array($task['CHECKLIST'] ?? null) ? $task['CHECKLIST'] : [], $checklist);
+    prDbUpdate('b_pr_tasks', [
+        'CHECKLIST_JSON' => prJsonEncode($savedChecklist),
+    ], 'ID = ' . $taskId);
+    prAudit($userId, 'task_checklist_save', 'task', $taskId, [
+        'request_id' => (int)$task['REQUEST_ID'],
+        'checklist' => $savedChecklist,
+    ]);
+
+    return $savedChecklist;
+}
+
 function prApplyTaskDecision(
     int $taskId,
     int $userId,
@@ -497,13 +570,7 @@ function prApplyTaskDecision(
 {
     prEnsureTables();
     $task = prFetchTask($taskId);
-    $canAct = $task
-        && (
-            (int)$task['ASSIGNED_USER_ID'] === $userId
-            || ((int)($task['SUBSTITUTE_USER_ID'] ?? 0) === $userId && prIsUserAbsentNow((int)$task['ASSIGNED_USER_ID']))
-        )
-        && (string)$task['STATUS'] === 'OPEN';
-    if (!$canAct) {
+    if (!prTaskCanBeEditedByUser($task, $userId)) {
         throw new RuntimeException('Задание недоступно.');
     }
 
@@ -514,6 +581,9 @@ function prApplyTaskDecision(
     $requestId = (int)$task['REQUEST_ID'];
     $version = (int)$task['VERSION'];
     $roleCode = (string)$task['ROLE_CODE'];
+    $checklistContext = prChecklistContextForTask($task);
+    $checklistLabels = $checklistContext['labels'];
+    $checklistTitle = $checklistContext['title'];
     $availableIds = array_map('intval', $task['AVAILABLE_ITEM_IDS_ARRAY'] ?? []);
     $activeAvailableIds = array_values(array_intersect($availableIds, prActiveItemIds($requestId, $version)));
     $decisionAvailableIds = $activeAvailableIds ?: $availableIds;
@@ -601,16 +671,27 @@ function prApplyTaskDecision(
     }
 
     $decisionComment = $comment;
-    if ($roleCode === 'supply' && $decision === 'approve') {
+    if ($checklistLabels) {
         $checklist = is_array($supply['checklist'] ?? null) ? $supply['checklist'] : [];
-        $lines = [];
-        foreach (prSupplyChecklistLabels() as $key => $label) {
-            if (empty($checklist[$key])) {
-                throw new RuntimeException('Заполните чек-лист снабжения полностью.');
+        $checklist = prNormalizeTaskChecklist(
+            $checklistLabels,
+            is_array($task['CHECKLIST'] ?? null) ? $task['CHECKLIST'] : [],
+            $checklist
+        );
+        prDbUpdate('b_pr_tasks', [
+            'CHECKLIST_JSON' => prJsonEncode($checklist),
+        ], 'ID = ' . $taskId);
+
+        if ($decision === 'approve') {
+            $lines = [];
+            foreach ($checklistLabels as $key => $label) {
+                if (empty($checklist[$key])) {
+                    throw new RuntimeException('Заполните чек-лист полностью.');
+                }
+                $lines[] = '- ' . $label;
             }
-            $lines[] = '- ' . $label;
+            $decisionComment = trim($decisionComment . "\n\n" . $checklistTitle . ":\n" . implode("\n", $lines));
         }
-        $decisionComment = trim($decisionComment . "\n\nЧек-лист снабжения:\n" . implode("\n", $lines));
     }
 
     $actorProfile = prUserProfileSummary($userId);

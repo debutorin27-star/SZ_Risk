@@ -36,7 +36,6 @@ function prProxyWorkerUrl(string $jobId, string $secret): string
 
 function prProxyCallWorker(string $url): array
 {
-    $cookie = (string)($_SERVER['HTTP_COOKIE'] ?? '');
     if (function_exists('curl_init')) {
         $ch = curl_init();
         $options = [
@@ -50,9 +49,6 @@ function prProxyCallWorker(string $url): array
             CURLOPT_USERAGENT => 'PurchaseRequests API proxy',
             CURLOPT_HTTPHEADER => ['Accept: application/json'],
         ];
-        if ($cookie !== '') {
-            $options[CURLOPT_COOKIE] = $cookie;
-        }
         curl_setopt_array($ch, $options);
         $raw = curl_exec($ch);
         $error = curl_error($ch);
@@ -65,7 +61,7 @@ function prProxyCallWorker(string $url): array
         'http' => [
             'method' => 'GET',
             'timeout' => 120,
-            'header' => "Accept: application/json\r\nUser-Agent: PurchaseRequests API proxy\r\n" . ($cookie !== '' ? "Cookie: " . $cookie . "\r\n" : ''),
+            'header' => "Accept: application/json\r\nUser-Agent: PurchaseRequests API proxy\r\n",
         ],
     ]);
     $raw = @file_get_contents($url, false, $context);

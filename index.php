@@ -272,7 +272,7 @@ const noticeBox = document.getElementById('noticeBox');
 
 function apiUrl(path, params = {}) {
     const directBootstrap = path === 'bootstrap.php';
-    const useProxy = !directBootstrap && apiMode !== 'direct';
+    const useProxy = apiUsesProxy(path);
     const url = new URL(PR_APP_DIR + '/api/' + (useProxy ? 'proxy.php' : path), location.origin);
     if (useProxy) url.searchParams.set('target', path);
     url.searchParams.set('auth_context', PR_AUTH_CONTEXT || '');
@@ -281,6 +281,10 @@ function apiUrl(path, params = {}) {
     }
     Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value));
     return url.toString();
+}
+
+function apiUsesProxy(path) {
+    return path !== 'bootstrap.php' && apiMode !== 'direct';
 }
 
 function escapeHtml(value) {
@@ -312,7 +316,7 @@ async function api(path, options = {}, retriedDirect = false) {
         method: options.method || 'GET',
         headers: options.body ? {'Content-Type': 'application/json'} : {},
         body: options.body ? JSON.stringify(options.body) : undefined,
-        credentials: 'same-origin',
+        credentials: apiUsesProxy(path) ? 'omit' : 'same-origin',
         cache: 'no-store'
     });
     const text = await response.text();
@@ -423,7 +427,7 @@ async function uploadAttachments(requestId) {
     const response = await fetch(apiUrl('requests.php'), {
         method: 'POST',
         body: fd,
-        credentials: 'same-origin',
+        credentials: apiUsesProxy('requests.php') ? 'omit' : 'same-origin',
         cache: 'no-store'
     });
     const text = await response.text();
@@ -898,11 +902,14 @@ function taskItemsHtml(task) {
     </div>`;
 }
 
-function supplyChecklistHtml(task) {
-    if ((task.ROLE_CODE || '') !== 'supply') return '';
-    const checklist = dict.supply_checklist || {};
+function taskChecklistHtml(task) {
+    const checklist = task.CHECKLIST_LABELS || {};
+    const values = task.CHECKLIST || {};
+    if (!Object.keys(checklist).length) return '';
     return `<div class="check-list">
-        ${Object.entries(checklist).map(([key, label]) => `<label class="check-row"><input type="checkbox" data-supply-check="${escapeHtml(key)}"> ${escapeHtml(label)}</label>`).join('')}
+        <b>${escapeHtml(task.CHECKLIST_TITLE || 'Чек-лист')}</b>
+        ${Object.entries(checklist).map(([key, label]) => `<label class="check-row"><input type="checkbox" data-checklist-key="${escapeHtml(key)}"${values[key] ? ' checked' : ''}> ${escapeHtml(label)}</label>`).join('')}
+        <div class="actions"><button type="button" class="light" data-save-checklist>Сохранить чек-лист</button></div>
     </div>`;
 }
 
@@ -930,7 +937,7 @@ async function loadTasks() {
             ${task.IS_SUBSTITUTE === 'Y' ? `<div class="notice">Вы действуете как замещающий. Основной исполнитель: #${escapeHtml(task.ASSIGNED_USER_ID)} ${escapeHtml(task.ASSIGNED_USER_NAME || '')}</div>` : ''}
             ${taskItemsHtml(task)}
             ${(task.ATTACHMENTS || []).length ? `<div class="task-items"><b>Файлы заявки</b>${attachmentListHtml(task.ATTACHMENTS || [])}</div>` : ''}
-            ${supplyChecklistHtml(task)}
+            ${taskChecklistHtml(task)}
             <label>Комментарий</label>
             <textarea data-task-field="comment"></textarea>
             <div class="actions">
@@ -958,22 +965,37 @@ async function sendDecision(taskEl, decision) {
     taskEl.querySelectorAll('[data-item-decision]').forEach(select => {
         if (select.dataset.itemDecision) itemDecisions[select.dataset.itemDecision] = select.value;
     });
-    const supplyChecklist = {};
-    taskEl.querySelectorAll('[data-supply-check]').forEach(input => {
-        supplyChecklist[input.dataset.supplyCheck] = input.checked;
-    });
+    const taskChecklist = collectTaskChecklist(taskEl);
     await api('tasks.php', {method:'POST', body:{
         action:'decision',
         task_id: Number(taskEl.dataset.task),
         decision,
         comment: field('comment'),
         warehouse: {items: warehouseItems},
-        supply: {checklist: supplyChecklist},
+        supply: {checklist: taskChecklist},
         item_decisions: itemDecisions
     }});
     showNotice('Решение сохранено.', 'success');
     await loadTasks();
     await loadRequests();
+}
+
+function collectTaskChecklist(taskEl) {
+    const checklist = {};
+    taskEl.querySelectorAll('[data-checklist-key]').forEach(input => {
+        checklist[input.dataset.checklistKey] = input.checked;
+    });
+    return checklist;
+}
+
+async function saveTaskChecklist(taskEl) {
+    await api('tasks.php', {method:'POST', body:{
+        action:'save_checklist',
+        task_id: Number(taskEl.dataset.task),
+        checklist: collectTaskChecklist(taskEl)
+    }});
+    showNotice('Чек-лист сохранен.', 'success');
+    await loadTasks();
 }
 
 async function loadAdmin() {
@@ -1255,6 +1277,8 @@ function bindEvents() {
     document.body.addEventListener('click', e => {
         const open = e.target.closest('[data-open-request]');
         if (open) openRequest(open.dataset.openRequest).catch(err => showNotice(err.message, 'error'));
+        const saveChecklist = e.target.closest('[data-save-checklist]');
+        if (saveChecklist) saveTaskChecklist(saveChecklist.closest('.task')).catch(err => showNotice(err.message, 'error'));
         const decision = e.target.closest('[data-decision]');
         if (decision) sendDecision(decision.closest('.task'), decision.dataset.decision).catch(err => showNotice(err.message, 'error'));
         const del = e.target.closest('[data-delete-assignment]');

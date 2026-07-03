@@ -170,7 +170,7 @@ function prRoleLabels(): array
         'warehouse' => 'Склад',
         'profile_approver' => 'Профильный согласующий',
         'chief_engineer' => 'Главный инженер',
-        'production_chief' => 'Начальник производства',
+        'production_chief' => 'Директор завода',
         'automation_head' => 'Начальник отдела автоматизации',
         'director' => 'Директор',
         'expense_control' => 'Контроль расходов',
@@ -190,6 +190,7 @@ function prStatusLabels(): array
         'REGISTRATION' => 'Ожидает регистрации',
         'REGISTERED' => 'Зарегистрирована',
         'SUPPLY' => 'Передана в снабжение',
+        'EXECUTION' => 'В исполнении',
         'ACCEPTANCE' => 'Ожидает приемки инициатором',
         'IN_PROGRESS' => 'Принята в работу',
         'REJECTED' => 'Отклонена',
@@ -219,6 +220,31 @@ function prSupplyChecklistLabels(): array
         'paid_waiting_delivery' => 'Оплачено, ожидаем поставку',
         'transferred_to_initiator' => 'Передана инициатору',
     ];
+}
+
+function prTaskChecklistLabels(string $roleCode, string $requestType = '', string $stepCode = ''): array
+{
+    if ($requestType === 'computers') {
+        if ($roleCode === 'automation_head' && $stepCode !== 'automation_approval') {
+            return prSupplyChecklistLabels();
+        }
+        return [];
+    }
+
+    return $roleCode === 'supply' ? prSupplyChecklistLabels() : [];
+}
+
+function prTaskChecklistTitle(string $roleCode, string $requestType = '', string $stepCode = ''): string
+{
+    if ($requestType === 'computers' && $roleCode === 'automation_head') {
+        return 'Чек-лист отдела автоматизации';
+    }
+
+    if ($roleCode === 'supply') {
+        return 'Чек-лист снабжения';
+    }
+
+    return 'Чек-лист исполнения';
 }
 
 function prRoutePresets(): array
@@ -321,7 +347,7 @@ function prRoutePresets(): array
         ],
         [
             'code' => 'raw_materials',
-            'title' => 'Сырье: профильный согласующий и начальник производства',
+            'title' => 'Сырье: профильный согласующий и директор завода',
             'sort' => 70,
             'company_key' => 'egida_plus',
             'site_key' => '',
@@ -332,7 +358,7 @@ function prRoutePresets(): array
             'item_category' => '',
             'steps' => [
                 ['code' => 'profile_approval', 'role' => 'profile_approver', 'title' => 'Профильное согласование', 'status' => 'APPROVAL'],
-                ['code' => 'production_chief', 'role' => 'production_chief', 'title' => 'Согласование начальником производства', 'status' => 'APPROVAL'],
+                ['code' => 'plant_director', 'role' => 'director', 'title' => 'Согласование директором завода', 'status' => 'APPROVAL'],
                 ['code' => 'warehouse', 'role' => 'warehouse', 'title' => 'Проверка склада', 'status' => 'WAREHOUSE'],
                 ['code' => 'supply', 'role' => 'supply', 'title' => 'Задача снабжению', 'status' => 'SUPPLY'],
                 ['code' => 'initiator_acceptance', 'role' => 'initiator', 'title' => 'Приемка выполнения инициатором', 'status' => 'ACCEPTANCE'],
@@ -350,8 +376,8 @@ function prRoutePresets(): array
             'initiator_position' => '',
             'item_category' => '',
             'steps' => [
-                ['code' => 'automation_head', 'role' => 'automation_head', 'title' => 'Согласование начальником отдела автоматизации', 'status' => 'APPROVAL'],
-                ['code' => 'supply', 'role' => 'supply', 'title' => 'Задача снабжению', 'status' => 'SUPPLY'],
+                ['code' => 'automation_approval', 'role' => 'automation_head', 'title' => 'Согласование начальником отдела автоматизации', 'status' => 'APPROVAL'],
+                ['code' => 'automation_execution', 'role' => 'automation_head', 'title' => 'Исполнение заявки отделом автоматизации', 'status' => 'EXECUTION'],
                 ['code' => 'initiator_acceptance', 'role' => 'initiator', 'title' => 'Приемка выполнения инициатором', 'status' => 'ACCEPTANCE'],
             ],
         ],
@@ -367,9 +393,9 @@ function prRoutePresets(): array
             'initiator_position' => '',
             'item_category' => '',
             'steps' => [
-                ['code' => 'automation_head', 'role' => 'automation_head', 'title' => 'Согласование начальником отдела автоматизации', 'status' => 'APPROVAL'],
+                ['code' => 'automation_approval', 'role' => 'automation_head', 'title' => 'Согласование начальником отдела автоматизации', 'status' => 'APPROVAL'],
                 ['code' => 'expense_control', 'role' => 'expense_control', 'title' => 'Контроль расходов', 'status' => 'APPROVAL'],
-                ['code' => 'supply', 'role' => 'supply', 'title' => 'Задача снабжению', 'status' => 'SUPPLY'],
+                ['code' => 'automation_execution', 'role' => 'automation_head', 'title' => 'Исполнение заявки отделом автоматизации', 'status' => 'EXECUTION'],
                 ['code' => 'initiator_acceptance', 'role' => 'initiator', 'title' => 'Приемка выполнения инициатором', 'status' => 'ACCEPTANCE'],
             ],
         ],
