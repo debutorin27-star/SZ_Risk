@@ -499,7 +499,9 @@ function prFetchRouteRules(): array
     $rows = [];
     $rs = prDb()->query("SELECT * FROM b_pr_route_rules ORDER BY SORT, ID");
     while ($row = $rs->fetch()) {
-        $row['STEPS'] = prJsonDecode($row['STEPS_JSON'] ?? '[]');
+        $row['STEPS'] = array_values(array_filter(prJsonDecode($row['STEPS_JSON'] ?? '[]'), static function ($step): bool {
+            return is_array($step) && !in_array((string)($step['role'] ?? ''), ['president', 'registrar'], true);
+        }));
         $rows[] = $row;
     }
     return $rows;
@@ -557,6 +559,12 @@ function prSaveRouteRule(array $data, int $adminUserId): int
         $decoded = json_decode($steps, true);
         $steps = is_array($decoded) ? $decoded : [];
     }
+    $steps = array_values(array_filter(array_values($steps), static function ($step): bool {
+        if (!is_array($step)) {
+            return false;
+        }
+        return !in_array((string)($step['role'] ?? ''), ['president', 'registrar'], true);
+    }));
     if (!$steps) {
         throw new RuntimeException('Маршрут должен содержать минимум один этап.');
     }
@@ -900,6 +908,15 @@ function prRouteAssigneesForStep(array $request, int $stepIndex, array $step): a
     $roleCode = (string)($step['role'] ?? '');
     if ($roleCode === '') {
         return [];
+    }
+    if ($roleCode === 'initiator') {
+        $profile = prUserProfileSummary(
+            (int)($request['INITIATOR_ID'] ?? 0),
+            (string)($request['INITIATOR_NAME'] ?? ''),
+            (string)($request['INITIATOR_POSITION'] ?? ''),
+            (string)($request['DEPARTMENT_NAME'] ?? '')
+        );
+        return $profile['id'] > 0 ? [$profile] : [];
     }
 
     $assignees = [];
@@ -1394,6 +1411,9 @@ function prFetchUserTasks(int $userId): array
         $row['IS_SUBSTITUTE'] = $isSubstitute ? 'Y' : 'N';
         $row['AVAILABLE_ITEM_IDS_ARRAY'] = prJsonDecode($row['AVAILABLE_ITEM_IDS'] ?? '[]');
         $items = prFetchRequestItems((int)$row['REQUEST_ID'], (int)$row['VERSION']);
+        $items = array_values(array_filter($items, static function (array $item): bool {
+            return (string)($item['FINAL_STATUS'] ?? 'ACTIVE') === 'ACTIVE';
+        }));
         $allowed = array_map('intval', $row['AVAILABLE_ITEM_IDS_ARRAY']);
         if ($allowed) {
             $items = array_values(array_filter($items, static function (array $item) use ($allowed): bool {

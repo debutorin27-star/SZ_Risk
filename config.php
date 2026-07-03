@@ -20,7 +20,8 @@ const PR_ADMIN_GROUP_IDS = [];
 const PR_DEFAULT_CURRENCY = 'RUB';
 const PR_MAX_UPLOAD_FILE_SIZE = 52428800;
 const PR_EXPENSIVE_AMOUNT_LIMIT = 1000000;
-const PR_AVTOSERVICE_OKS_PRESIDENT_LIMIT = 200000;
+const PR_AVTOSERVICE_OKS_LIMIT = 200000;
+const PR_COMPUTERS_EXPENSE_CONTROL_LIMIT = 100000;
 
 function prAllowedFileExtensions(): array
 {
@@ -76,6 +77,8 @@ function prInitiatorProfiles(): array
 {
     return [
         'krasnoborskaya_2' => [
+            ['department' => 'Отдел автоматизации', 'position' => '', 'label' => 'Отдел автоматизации'],
+            ['department' => 'Отдел автоматизации', 'position' => 'Начальник отдела автоматизации', 'label' => 'Начальник отдела автоматизации'],
             ['department' => 'Отдел главного механика', 'position' => 'Главный механик', 'label' => 'Главный механик'],
             ['department' => 'Заводоуправление', 'position' => 'Заместитель главного инженера', 'label' => 'Заместитель главного инженера'],
             ['department' => 'Транспортный участок', 'position' => 'Заведующий гаражом', 'label' => 'Заведующий гаражом'],
@@ -92,6 +95,8 @@ function prInitiatorProfiles(): array
             ['department' => 'Производственная группа', 'position' => 'Начальник производственной группы', 'label' => 'Начальник производственной группы'],
         ],
         'avtoservisnaya' => [
+            ['department' => 'Отдел автоматизации', 'position' => '', 'label' => 'Отдел автоматизации'],
+            ['department' => 'Отдел автоматизации', 'position' => 'Начальник отдела автоматизации', 'label' => 'Начальник отдела автоматизации'],
             ['department' => 'Материальная база', 'position' => 'Механик', 'label' => 'Механик'],
             ['department' => 'Материальная база', 'position' => 'Энергетик', 'label' => 'Энергетик'],
             ['department' => 'Материальная база', 'position' => 'Кладовщик', 'label' => 'Кладовщик'],
@@ -99,6 +104,7 @@ function prInitiatorProfiles(): array
             ['department' => 'Клеевой участок', 'position' => 'Начальник клеевого участка', 'label' => 'Начальник клеевого участка'],
         ],
         'krasnokakshayskaya_47' => [
+            ['department' => 'Отдел автоматизации', 'position' => '', 'label' => 'Отдел автоматизации'],
             ['department' => 'Отдел автоматизации', 'position' => 'Начальник отдела автоматизации', 'label' => 'Начальник отдела автоматизации'],
             ['department' => 'Заводоуправление', 'position' => 'Секретарь', 'label' => 'Секретарь'],
             ['department' => 'Административно-хозяйственная служба', 'position' => 'Заведующий АХО', 'label' => 'Заведующий АХО'],
@@ -130,6 +136,8 @@ function prRequestTypes(): array
         'work' => 'Работа',
         'service' => 'Услуга',
         'mixed' => 'Смешанная',
+        'raw_materials' => 'Сырье',
+        'computers' => 'Компьютеры',
     ];
 }
 
@@ -162,10 +170,10 @@ function prRoleLabels(): array
         'warehouse' => 'Склад',
         'profile_approver' => 'Профильный согласующий',
         'chief_engineer' => 'Главный инженер',
+        'production_chief' => 'Начальник производства',
+        'automation_head' => 'Начальник отдела автоматизации',
         'director' => 'Директор',
-        'president' => 'Президент',
         'expense_control' => 'Контроль расходов',
-        'registrar' => 'Регистратор',
         'supply' => 'Снабжение',
         'process_admin' => 'Администратор процесса',
         'observer' => 'Наблюдатель',
@@ -182,6 +190,7 @@ function prStatusLabels(): array
         'REGISTRATION' => 'Ожидает регистрации',
         'REGISTERED' => 'Зарегистрирована',
         'SUPPLY' => 'Передана в снабжение',
+        'ACCEPTANCE' => 'Ожидает приемки инициатором',
         'IN_PROGRESS' => 'Принята в работу',
         'REJECTED' => 'Отклонена',
         'REVISION' => 'На доработке',
@@ -193,12 +202,22 @@ function prStatusLabels(): array
 function prDefaultRouteSteps(): array
 {
     return [
-        ['code' => 'warehouse', 'role' => 'warehouse', 'title' => 'Проверка склада', 'status' => 'WAREHOUSE'],
         ['code' => 'profile_approval', 'role' => 'profile_approver', 'title' => 'Профильное согласование', 'status' => 'APPROVAL'],
         ['code' => 'chief_engineer', 'role' => 'chief_engineer', 'title' => 'Техническое согласование', 'status' => 'APPROVAL'],
         ['code' => 'director', 'role' => 'director', 'title' => 'Утверждение', 'status' => 'APPROVAL'],
-        ['code' => 'registration', 'role' => 'registrar', 'title' => 'Регистрация', 'status' => 'REGISTRATION'],
-        ['code' => 'supply', 'role' => 'supply', 'title' => 'Передача в снабжение', 'status' => 'SUPPLY'],
+        ['code' => 'warehouse', 'role' => 'warehouse', 'title' => 'Проверка склада', 'status' => 'WAREHOUSE'],
+        ['code' => 'supply', 'role' => 'supply', 'title' => 'Задача снабжению', 'status' => 'SUPPLY'],
+        ['code' => 'initiator_acceptance', 'role' => 'initiator', 'title' => 'Приемка выполнения инициатором', 'status' => 'ACCEPTANCE'],
+    ];
+}
+
+function prSupplyChecklistLabels(): array
+{
+    return [
+        'processed_1c' => 'Заявка обработана и внесена в 1С',
+        'contractor_details' => 'Реквизиты контрагента внесены',
+        'paid_waiting_delivery' => 'Оплачено, ожидаем поставку',
+        'transferred_to_initiator' => 'Передана инициатору',
     ];
 }
 
@@ -217,11 +236,11 @@ function prRoutePresets(): array
             'initiator_position' => '',
             'item_category' => '',
             'steps' => [
-                ['code' => 'warehouse', 'role' => 'warehouse', 'title' => 'Проверка склада', 'status' => 'WAREHOUSE'],
                 ['code' => 'chief_engineer', 'role' => 'chief_engineer', 'title' => 'Согласование главным инженером', 'status' => 'APPROVAL'],
                 ['code' => 'director', 'role' => 'director', 'title' => 'Утверждение директором завода', 'status' => 'APPROVAL'],
-                ['code' => 'registration', 'role' => 'registrar', 'title' => 'Регистрация секретарем', 'status' => 'REGISTRATION'],
-                ['code' => 'supply', 'role' => 'supply', 'title' => 'Передача в снабжение', 'status' => 'SUPPLY'],
+                ['code' => 'warehouse', 'role' => 'warehouse', 'title' => 'Проверка склада', 'status' => 'WAREHOUSE'],
+                ['code' => 'supply', 'role' => 'supply', 'title' => 'Задача снабжению', 'status' => 'SUPPLY'],
+                ['code' => 'initiator_acceptance', 'role' => 'initiator', 'title' => 'Приемка выполнения инициатором', 'status' => 'ACCEPTANCE'],
             ],
         ],
         [
@@ -232,34 +251,34 @@ function prRoutePresets(): array
             'site_key' => 'avtoservisnaya',
             'request_type' => '',
             'min_amount' => '',
-            'max_amount' => PR_AVTOSERVICE_OKS_PRESIDENT_LIMIT,
+            'max_amount' => PR_AVTOSERVICE_OKS_LIMIT,
             'initiator_position' => '',
             'item_category' => '',
             'steps' => [
-                ['code' => 'warehouse', 'role' => 'warehouse', 'title' => 'Проверка склада', 'status' => 'WAREHOUSE'],
                 ['code' => 'profile_approval', 'role' => 'profile_approver', 'title' => 'Профильное согласование', 'status' => 'APPROVAL'],
                 ['code' => 'chief_engineer', 'role' => 'chief_engineer', 'title' => 'Утверждение главным инженером', 'status' => 'APPROVAL'],
-                ['code' => 'registration', 'role' => 'registrar', 'title' => 'Регистрация', 'status' => 'REGISTRATION'],
-                ['code' => 'supply', 'role' => 'supply', 'title' => 'Передача в снабжение', 'status' => 'SUPPLY'],
+                ['code' => 'warehouse', 'role' => 'warehouse', 'title' => 'Проверка склада', 'status' => 'WAREHOUSE'],
+                ['code' => 'supply', 'role' => 'supply', 'title' => 'Задача снабжению', 'status' => 'SUPPLY'],
+                ['code' => 'initiator_acceptance', 'role' => 'initiator', 'title' => 'Приемка выполнения инициатором', 'status' => 'ACCEPTANCE'],
             ],
         ],
         [
-            'code' => 'avtoservisnaya_oks_president',
+            'code' => 'avtoservisnaya_oks',
             'title' => 'Автосервисная: ОКС работы свыше 200 000',
             'sort' => 90,
             'company_key' => 'egida_plus',
             'site_key' => 'avtoservisnaya',
             'request_type' => 'work',
-            'min_amount' => PR_AVTOSERVICE_OKS_PRESIDENT_LIMIT + 0.01,
+            'min_amount' => PR_AVTOSERVICE_OKS_LIMIT + 0.01,
             'max_amount' => '',
             'initiator_position' => 'ОКС',
             'item_category' => '',
             'steps' => [
-                ['code' => 'warehouse', 'role' => 'warehouse', 'title' => 'Проверка склада', 'status' => 'WAREHOUSE'],
                 ['code' => 'chief_engineer', 'role' => 'chief_engineer', 'title' => 'Согласование главным инженером', 'status' => 'APPROVAL'],
-                ['code' => 'president_approval', 'role' => 'president', 'title' => 'Утверждение Президентом', 'status' => 'APPROVAL'],
-                ['code' => 'registration', 'role' => 'registrar', 'title' => 'Регистрация', 'status' => 'REGISTRATION'],
-                ['code' => 'supply', 'role' => 'supply', 'title' => 'Передача в снабжение', 'status' => 'SUPPLY'],
+                ['code' => 'director', 'role' => 'director', 'title' => 'Утверждение директором', 'status' => 'APPROVAL'],
+                ['code' => 'warehouse', 'role' => 'warehouse', 'title' => 'Проверка склада', 'status' => 'WAREHOUSE'],
+                ['code' => 'supply', 'role' => 'supply', 'title' => 'Задача снабжению', 'status' => 'SUPPLY'],
+                ['code' => 'initiator_acceptance', 'role' => 'initiator', 'title' => 'Приемка выполнения инициатором', 'status' => 'ACCEPTANCE'],
             ],
         ],
         [
@@ -274,15 +293,15 @@ function prRoutePresets(): array
             'initiator_position' => '',
             'item_category' => '',
             'steps' => [
-                ['code' => 'warehouse', 'role' => 'warehouse', 'title' => 'Проверка склада', 'status' => 'WAREHOUSE'],
                 ['code' => 'expense_control', 'role' => 'expense_control', 'title' => 'Контроль расходов', 'status' => 'APPROVAL'],
-                ['code' => 'registration', 'role' => 'registrar', 'title' => 'Регистрация', 'status' => 'REGISTRATION'],
-                ['code' => 'supply', 'role' => 'supply', 'title' => 'Передача в снабжение', 'status' => 'SUPPLY'],
+                ['code' => 'warehouse', 'role' => 'warehouse', 'title' => 'Проверка склада', 'status' => 'WAREHOUSE'],
+                ['code' => 'supply', 'role' => 'supply', 'title' => 'Задача снабжению', 'status' => 'SUPPLY'],
+                ['code' => 'initiator_acceptance', 'role' => 'initiator', 'title' => 'Приемка выполнения инициатором', 'status' => 'ACCEPTANCE'],
             ],
         ],
         [
-            'code' => 'expensive_president',
-            'title' => 'Дорогостоящая заявка: Президент',
+            'code' => 'expensive_expense_control',
+            'title' => 'Дорогостоящая заявка: контроль расходов',
             'sort' => 80,
             'company_key' => 'egida_plus',
             'site_key' => '',
@@ -292,12 +311,66 @@ function prRoutePresets(): array
             'initiator_position' => '',
             'item_category' => '',
             'steps' => [
-                ['code' => 'warehouse', 'role' => 'warehouse', 'title' => 'Проверка склада', 'status' => 'WAREHOUSE'],
                 ['code' => 'profile_approval', 'role' => 'profile_approver', 'title' => 'Профильное согласование', 'status' => 'APPROVAL'],
                 ['code' => 'chief_engineer', 'role' => 'chief_engineer', 'title' => 'Техническое согласование', 'status' => 'APPROVAL'],
-                ['code' => 'president_approval', 'role' => 'president', 'title' => 'Утверждение Президентом', 'status' => 'APPROVAL'],
-                ['code' => 'registration', 'role' => 'registrar', 'title' => 'Регистрация', 'status' => 'REGISTRATION'],
-                ['code' => 'supply', 'role' => 'supply', 'title' => 'Передача в снабжение', 'status' => 'SUPPLY'],
+                ['code' => 'expense_control', 'role' => 'expense_control', 'title' => 'Контроль расходов', 'status' => 'APPROVAL'],
+                ['code' => 'warehouse', 'role' => 'warehouse', 'title' => 'Проверка склада', 'status' => 'WAREHOUSE'],
+                ['code' => 'supply', 'role' => 'supply', 'title' => 'Задача снабжению', 'status' => 'SUPPLY'],
+                ['code' => 'initiator_acceptance', 'role' => 'initiator', 'title' => 'Приемка выполнения инициатором', 'status' => 'ACCEPTANCE'],
+            ],
+        ],
+        [
+            'code' => 'raw_materials',
+            'title' => 'Сырье: профильный согласующий и начальник производства',
+            'sort' => 70,
+            'company_key' => 'egida_plus',
+            'site_key' => '',
+            'request_type' => 'raw_materials',
+            'min_amount' => '',
+            'max_amount' => '',
+            'initiator_position' => '',
+            'item_category' => '',
+            'steps' => [
+                ['code' => 'profile_approval', 'role' => 'profile_approver', 'title' => 'Профильное согласование', 'status' => 'APPROVAL'],
+                ['code' => 'production_chief', 'role' => 'production_chief', 'title' => 'Согласование начальником производства', 'status' => 'APPROVAL'],
+                ['code' => 'warehouse', 'role' => 'warehouse', 'title' => 'Проверка склада', 'status' => 'WAREHOUSE'],
+                ['code' => 'supply', 'role' => 'supply', 'title' => 'Задача снабжению', 'status' => 'SUPPLY'],
+                ['code' => 'initiator_acceptance', 'role' => 'initiator', 'title' => 'Приемка выполнения инициатором', 'status' => 'ACCEPTANCE'],
+            ],
+        ],
+        [
+            'code' => 'computers',
+            'title' => 'Компьютеры: отдел автоматизации',
+            'sort' => 60,
+            'company_key' => 'egida_plus',
+            'site_key' => '',
+            'request_type' => 'computers',
+            'min_amount' => '',
+            'max_amount' => PR_COMPUTERS_EXPENSE_CONTROL_LIMIT,
+            'initiator_position' => '',
+            'item_category' => '',
+            'steps' => [
+                ['code' => 'automation_head', 'role' => 'automation_head', 'title' => 'Согласование начальником отдела автоматизации', 'status' => 'APPROVAL'],
+                ['code' => 'supply', 'role' => 'supply', 'title' => 'Задача снабжению', 'status' => 'SUPPLY'],
+                ['code' => 'initiator_acceptance', 'role' => 'initiator', 'title' => 'Приемка выполнения инициатором', 'status' => 'ACCEPTANCE'],
+            ],
+        ],
+        [
+            'code' => 'computers_expense_control',
+            'title' => 'Компьютеры свыше 100 000: отдел автоматизации и контроль расходов',
+            'sort' => 50,
+            'company_key' => 'egida_plus',
+            'site_key' => '',
+            'request_type' => 'computers',
+            'min_amount' => PR_COMPUTERS_EXPENSE_CONTROL_LIMIT + 0.01,
+            'max_amount' => '',
+            'initiator_position' => '',
+            'item_category' => '',
+            'steps' => [
+                ['code' => 'automation_head', 'role' => 'automation_head', 'title' => 'Согласование начальником отдела автоматизации', 'status' => 'APPROVAL'],
+                ['code' => 'expense_control', 'role' => 'expense_control', 'title' => 'Контроль расходов', 'status' => 'APPROVAL'],
+                ['code' => 'supply', 'role' => 'supply', 'title' => 'Задача снабжению', 'status' => 'SUPPLY'],
+                ['code' => 'initiator_acceptance', 'role' => 'initiator', 'title' => 'Приемка выполнения инициатором', 'status' => 'ACCEPTANCE'],
             ],
         ],
     ];

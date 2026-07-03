@@ -182,11 +182,10 @@ function prNotifyUser(int $toUserId, array $request, array $step, int $taskId = 
     }
 
     $payload = prNotifyBuildPayload($request, $step, $taskId);
+    $sent = false;
 
     try {
-        if (prNotifyRestSystem($toUserId, $payload)) {
-            return true;
-        }
+        $sent = prNotifyRestSystem($toUserId, $payload) || $sent;
     } catch (Throwable $e) {
         prLog('notify', [
             'event' => 'rest_system_notify_exception',
@@ -212,9 +211,7 @@ function prNotifyUser(int $toUserId, array $request, array $step, int $taskId = 
 
     if ($imIncluded) {
         try {
-            if (prNotifySystem($toUserId, $payload)) {
-                return true;
-            }
+            $sent = prNotifySystem($toUserId, $payload) || $sent;
         } catch (Throwable $e) {
             prLog('notify', [
                 'event' => 'system_notify_exception',
@@ -226,9 +223,7 @@ function prNotifyUser(int $toUserId, array $request, array $step, int $taskId = 
         }
 
         try {
-            if (prNotifyImMessage($toUserId, $payload)) {
-                return true;
-            }
+            $sent = prNotifyImMessage($toUserId, $payload) || $sent;
         } catch (Throwable $e) {
             prLog('notify', [
                 'event' => 'im_message_exception',
@@ -240,12 +235,15 @@ function prNotifyUser(int $toUserId, array $request, array $step, int $taskId = 
         }
     }
 
-    prLog('notify', [
-        'event' => 'im_unavailable',
-        'to' => $toUserId,
-        'request_id' => $payload['request_id'],
-        'task_id' => $payload['task_id'],
-        'message' => $payload['plain'],
-    ]);
-    return false;
+    if (!$sent) {
+        prLog('notify', [
+            'event' => 'im_unavailable',
+            'to' => $toUserId,
+            'request_id' => $payload['request_id'],
+            'task_id' => $payload['task_id'],
+            'message' => $payload['plain'],
+        ]);
+    }
+
+    return $sent;
 }

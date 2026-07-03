@@ -27,6 +27,7 @@ function prRenderRegisteredDocumentHtml(array $request): string
             . '<td>' . ($index + 1) . '</td>'
             . '<td>' . prDocumentH($item['NAME'] ?? '') . '</td>'
             . '<td>' . prDocumentH(prItemCategories()[$item['CATEGORY'] ?? ''] ?? ($item['CATEGORY'] ?? '')) . '</td>'
+            . '<td>' . prDocumentH($item['EQUIPMENT_TEXT'] ?? '') . '</td>'
             . '<td>' . prDocumentH($qty) . '</td>'
             . '<td>' . prDocumentH(prUnits()[$item['UNIT'] ?? ''] ?? ($item['UNIT'] ?? '')) . '</td>'
             . '<td>' . prDocumentH(prDocumentMoney($price, $currency)) . '</td>'
@@ -94,8 +95,8 @@ function prRenderRegisteredDocumentHtml(array $request): string
         . ($routeRows !== '' ? $routeRows : '<tr><td colspan="4">Маршрут отсутствует</td></tr>')
         . '</tbody></table>'
         . '<h2>Позиции заявки</h2>'
-        . '<table><thead><tr><th>#</th><th>Наименование</th><th>Вид</th><th>Кол-во</th><th>Ед.</th><th>Цена</th><th>Сумма</th><th>Комментарий</th></tr></thead><tbody>'
-        . ($rows !== '' ? $rows : '<tr><td colspan="8">Нет строк</td></tr>')
+        . '<table><thead><tr><th>#</th><th>Наименование</th><th>Вид</th><th>Место установки</th><th>Кол-во</th><th>Ед.</th><th>Предполагаемая цена за ед.</th><th>Сумма</th><th>Комментарий</th></tr></thead><tbody>'
+        . ($rows !== '' ? $rows : '<tr><td colspan="9">Нет строк</td></tr>')
         . '</tbody></table>'
         . '<h2>История маршрута</h2>'
         . '<table><thead><tr><th>Дата</th><th>Событие</th><th>Роль</th><th>Согласующий</th><th>Должность</th><th>Статус</th><th>Комментарий</th></tr></thead><tbody>'

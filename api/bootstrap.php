@@ -123,6 +123,7 @@ if (empty($authState['ok'])) {
                         'units' => prUnits(),
                         'roles' => prRoleLabels(),
                         'statuses' => prStatusLabels(),
+                        'supply_checklist' => prSupplyChecklistLabels(),
                         'allowed_file_extensions' => prAllowedFileExtensions(),
                     ],
                 ]);
@@ -163,6 +164,7 @@ prBootstrapResponse(true, [
         'units' => prUnits(),
         'roles' => prRoleLabels(),
         'statuses' => prStatusLabels(),
+        'supply_checklist' => prSupplyChecklistLabels(),
         'allowed_file_extensions' => prAllowedFileExtensions(),
     ],
 ]);

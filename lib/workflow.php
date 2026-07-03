@@ -11,7 +11,7 @@ function prResolveRoute(array $request): array
     $siteKey = (string)($request['SITE_KEY'] ?? '');
     $requestType = (string)($request['REQUEST_TYPE'] ?? '');
     $amount = (float)($request['TOTAL_AMOUNT'] ?? 0);
-    $position = (string)($request['INITIATOR_POSITION'] ?? '');
+    $position = trim((string)($request['INITIATOR_POSITION'] ?? '') . ' ' . (string)($request['DEPARTMENT_NAME'] ?? ''));
     $itemCategories = [];
     foreach (is_array($request['ITEMS'] ?? null) ? $request['ITEMS'] : [] as $item) {
         $category = (string)($item['CATEGORY'] ?? '');
@@ -98,9 +98,100 @@ function prInsertRouteStepBefore(array $steps, array $step, array $beforeCodes):
     return $steps;
 }
 
+function prExcludedWorkflowRoles(): array
+{
+    return [
+        'president' => true,
+        'registrar' => true,
+    ];
+}
+
+function prWorkflowStep(string $code, string $role, string $title, string $status): array
+{
+    return ['code' => $code, 'role' => $role, 'title' => $title, 'status' => $status];
+}
+
+function prRouteStepByRole(array $steps, string $roleCode, array $fallback): array
+{
+    foreach ($steps as $step) {
+        if (is_array($step) && (string)($step['role'] ?? '') === $roleCode) {
+            return $step;
+        }
+    }
+    return $fallback;
+}
+
+function prSanitizeRouteSteps(array $steps): array
+{
+    $excluded = prExcludedWorkflowRoles();
+    $sanitized = [];
+    foreach (array_values($steps) as $step) {
+        if (!is_array($step)) {
+            continue;
+        }
+        $roleCode = (string)($step['role'] ?? '');
+        if ($roleCode === '' || isset($excluded[$roleCode])) {
+            continue;
+        }
+        $sanitized[] = $step;
+    }
+    return $sanitized;
+}
+
+function prNormalizeRouteFinalSteps(array $steps, bool $includeWarehouse): array
+{
+    $steps = prSanitizeRouteSteps($steps);
+    $warehouse = prRouteStepByRole($steps, 'warehouse', prWorkflowStep('warehouse', 'warehouse', 'Проверка склада', 'WAREHOUSE'));
+    $supply = prRouteStepByRole($steps, 'supply', prWorkflowStep('supply', 'supply', 'Задача снабжению', 'SUPPLY'));
+    $acceptance = prWorkflowStep('initiator_acceptance', 'initiator', 'Приемка выполнения инициатором', 'ACCEPTANCE');
+
+    $normalized = [];
+    foreach ($steps as $step) {
+        $roleCode = (string)($step['role'] ?? '');
+        $stepCode = (string)($step['code'] ?? '');
+        if ($roleCode === 'warehouse' || $roleCode === 'supply' || ($roleCode === 'initiator' && $stepCode === 'initiator_acceptance')) {
+            continue;
+        }
+        $normalized[] = $step;
+    }
+
+    if ($includeWarehouse) {
+        $normalized[] = $warehouse;
+    }
+    $normalized[] = $supply;
+    $normalized[] = $acceptance;
+
+    return $normalized;
+}
+
 function prApplySpecialRouteRules(array $steps, array $request): array
 {
-    return $steps;
+    $requestType = (string)($request['REQUEST_TYPE'] ?? '');
+    $amount = (float)($request['TOTAL_AMOUNT'] ?? 0);
+
+    if ($requestType === 'raw_materials') {
+        return [
+            prWorkflowStep('profile_approval', 'profile_approver', 'Профильное согласование', 'APPROVAL'),
+            prWorkflowStep('production_chief', 'production_chief', 'Согласование начальником производства', 'APPROVAL'),
+            prWorkflowStep('warehouse', 'warehouse', 'Проверка склада', 'WAREHOUSE'),
+            prWorkflowStep('supply', 'supply', 'Задача снабжению', 'SUPPLY'),
+            prWorkflowStep('initiator_acceptance', 'initiator', 'Приемка выполнения инициатором', 'ACCEPTANCE'),
+        ];
+    }
+
+    if ($requestType === 'computers') {
+        $route = [
+            prWorkflowStep('automation_head', 'automation_head', 'Согласование начальником отдела автоматизации', 'APPROVAL'),
+        ];
+        if ($amount > PR_COMPUTERS_EXPENSE_CONTROL_LIMIT) {
+            $route[] = prWorkflowStep('expense_control', 'expense_control', 'Контроль расходов', 'APPROVAL');
+        }
+        $route[] = prWorkflowStep('supply', 'supply', 'Задача снабжению', 'SUPPLY');
+        $route[] = prWorkflowStep('initiator_acceptance', 'initiator', 'Приемка выполнения инициатором', 'ACCEPTANCE');
+        return $route;
+    }
+
+    return prNormalizeRouteFinalSteps($steps, true);
 }
 
 function prActiveItemIds(int $requestId, int $version): array
@@ -125,7 +216,27 @@ function prCreateStepTasks(array $request, int $stepIndex, array $step, int $act
     $version = (int)$request['CURRENT_VERSION'];
     $roleCode = (string)($step['role'] ?? '');
     $stepTitle = (string)($step['title'] ?? $roleCode);
-    $assignees = prFindRoleUsers($roleCode, (string)$request['COMPANY_KEY'], (string)$request['SITE_KEY']);
+    if (isset(prExcludedWorkflowRoles()[$roleCode])) {
+        prAudit($actorUserId, 'workflow_excluded_role_skipped', 'request', $requestId, ['role' => $roleCode, 'step' => $step]);
+        return [];
+    }
+
+    if ($roleCode === 'initiator') {
+        $initiator = prUserProfileSummary(
+            (int)$request['INITIATOR_ID'],
+            (string)($request['INITIATOR_NAME'] ?? ''),
+            (string)($request['INITIATOR_POSITION'] ?? ''),
+            (string)($request['DEPARTMENT_NAME'] ?? '')
+        );
+        $assignees = $initiator['id'] > 0 ? [[
+            'USER_ID' => $initiator['id'],
+            'USER_NAME' => $initiator['name'],
+            'POSITION_NAME' => $initiator['position'],
+            'DEPARTMENT_NAME' => $initiator['department'],
+        ]] : [];
+    } else {
+        $assignees = prFindRoleUsers($roleCode, (string)$request['COMPANY_KEY'], (string)$request['SITE_KEY']);
+    }
     $itemIds = prActiveItemIds($requestId, $version);
 
     if (!$assignees && PR_ADMIN_USER_IDS) {
@@ -240,6 +351,39 @@ function prStepHasOpenTasks(int $requestId, int $version, int $stepIndex): bool
     return (bool)$row;
 }
 
+function prRegistrationNumberForRequest(int $requestId): string
+{
+    return 'ЗП-' . date('Y') . '-' . str_pad((string)$requestId, 5, '0', STR_PAD_LEFT);
+}
+
+function prEnsureRequestRegistration(int $requestId, int $actorUserId): void
+{
+    $request = prGetRequest($requestId);
+    if (!$request) {
+        return;
+    }
+
+    $existingNumber = trim((string)($request['REG_NUMBER'] ?? ''));
+    $regNumber = $existingNumber !== '' ? $existingNumber : prRegistrationNumberForRequest($requestId);
+
+    prDb()->queryExecute("
+        UPDATE b_pr_requests
+        SET REG_NUMBER = '" . prSql($regNumber) . "',
+            REG_DATE = IF(REG_DATE IS NULL, CURDATE(), REG_DATE),
+            UPDATED_AT = NOW()
+        WHERE ID = " . $requestId
+    );
+
+    if ($existingNumber === '') {
+        prAudit($actorUserId, 'request_auto_registered', 'request', $requestId, ['reg_number' => $regNumber]);
+    }
+
+    $request = prGetRequest($requestId);
+    if ($request && empty($request['GENERATED_DOCUMENT_FILE_ID'])) {
+        prGenerateRegisteredDocument($requestId, $actorUserId);
+    }
+}
+
 function prAdvanceWorkflowIfReady(int $requestId, int $version, int $stepIndex, int $actorUserId): void
 {
     if (prStepHasOpenTasks($requestId, $version, $stepIndex)) {
@@ -252,12 +396,36 @@ function prAdvanceWorkflowIfReady(int $requestId, int $version, int $stepIndex, 
     }
     $route = prJsonDecode($request['ROUTE_SNAPSHOT'] ?? '[]');
     $nextIndex = $stepIndex + 1;
-    $nextStep = $route[$nextIndex] ?? null;
+    $nextStep = null;
+    $excluded = prExcludedWorkflowRoles();
+    while (isset($route[$nextIndex])) {
+        $candidate = $route[$nextIndex];
+        if (!is_array($candidate)) {
+            $nextIndex++;
+            continue;
+        }
+        $roleCode = (string)($candidate['role'] ?? '');
+        if (isset($excluded[$roleCode])) {
+            prAudit($actorUserId, 'workflow_excluded_step_skipped', 'request', $requestId, [
+                'step_index' => $nextIndex,
+                'step' => $candidate,
+            ]);
+            $nextIndex++;
+            continue;
+        }
+        $nextStep = $candidate;
+        break;
+    }
 
     if (!$nextStep) {
+        prEnsureRequestRegistration($requestId, $actorUserId);
         prDb()->queryExecute("UPDATE b_pr_requests SET STATUS = 'DONE', UPDATED_AT = NOW() WHERE ID = " . $requestId);
         prAudit($actorUserId, 'workflow_done', 'request', $requestId);
         return;
+    }
+
+    if ((string)($nextStep['role'] ?? '') === 'supply') {
+        prEnsureRequestRegistration($requestId, $actorUserId);
     }
 
     prDb()->queryExecute("
@@ -271,7 +439,61 @@ function prAdvanceWorkflowIfReady(int $requestId, int $version, int $stepIndex, 
     prCreateStepTasks($request, $nextIndex, $nextStep, $actorUserId);
 }
 
-function prApplyTaskDecision(int $taskId, int $userId, string $decision, string $comment, array $itemIds = [], array $warehouse = [], array $registration = []): void
+function prSkipOpenExcludedWorkflowTasks(int $actorUserId): void
+{
+    $roles = array_keys(prExcludedWorkflowRoles());
+    if (!$roles) {
+        return;
+    }
+
+    $quotedRoles = array_map(static function (string $role): string {
+        return "'" . prSql($role) . "'";
+    }, $roles);
+
+    $tasks = [];
+    $rs = prDb()->query("
+        SELECT ID, REQUEST_ID, VERSION, STEP_INDEX, ROLE_CODE
+        FROM b_pr_tasks
+        WHERE STATUS = 'OPEN'
+          AND ROLE_CODE IN (" . implode(',', $quotedRoles) . ")
+        ORDER BY REQUEST_ID, VERSION, STEP_INDEX, ID
+        LIMIT 200
+    ");
+    while ($row = $rs->fetch()) {
+        $tasks[] = $row;
+    }
+
+    foreach ($tasks as $task) {
+        $taskId = (int)$task['ID'];
+        $requestId = (int)$task['REQUEST_ID'];
+        $version = (int)$task['VERSION'];
+        $stepIndex = (int)$task['STEP_INDEX'];
+
+        prDb()->queryExecute("
+            UPDATE b_pr_tasks
+            SET STATUS = 'DONE',
+                COMPLETED_AT = NOW()
+            WHERE ID = " . $taskId . "
+              AND STATUS = 'OPEN'
+        ");
+        prAudit($actorUserId, 'workflow_excluded_task_closed', 'task', $taskId, [
+            'request_id' => $requestId,
+            'role' => (string)($task['ROLE_CODE'] ?? ''),
+        ]);
+        prAdvanceWorkflowIfReady($requestId, $version, $stepIndex, $actorUserId);
+    }
+}
+
+function prApplyTaskDecision(
+    int $taskId,
+    int $userId,
+    string $decision,
+    string $comment,
+    array $itemIds = [],
+    array $warehouse = [],
+    array $supply = [],
+    array $itemDecisions = []
+): void
 {
     prEnsureTables();
     $task = prFetchTask($taskId);
@@ -285,28 +507,38 @@ function prApplyTaskDecision(int $taskId, int $userId, string $decision, string 
         throw new RuntimeException('Задание недоступно.');
     }
 
-    if ((string)$task['ROLE_CODE'] === 'registrar' && $decision === 'revision') {
-        throw new RuntimeException('Регистратор не может вернуть заявку на доработку.');
-    }
-
     if (in_array($decision, ['reject', 'revision'], true) && trim($comment) === '') {
         throw new RuntimeException('Комментарий обязателен при отклонении или возврате.');
     }
 
     $requestId = (int)$task['REQUEST_ID'];
     $version = (int)$task['VERSION'];
+    $roleCode = (string)$task['ROLE_CODE'];
     $availableIds = array_map('intval', $task['AVAILABLE_ITEM_IDS_ARRAY'] ?? []);
-    $itemIds = array_values(array_intersect(array_map('intval', $itemIds ?: $availableIds), $availableIds));
+    $activeAvailableIds = array_values(array_intersect($availableIds, prActiveItemIds($requestId, $version)));
+    $decisionAvailableIds = $activeAvailableIds ?: $availableIds;
+    $itemIds = array_values(array_intersect(array_map('intval', $itemIds ?: $decisionAvailableIds), $decisionAvailableIds));
     if (!$itemIds) {
-        $itemIds = $availableIds;
+        $itemIds = $decisionAvailableIds;
     }
 
-    if ((string)$task['ROLE_CODE'] === 'warehouse') {
-        $status = (string)($warehouse['status'] ?? '');
-        $qty = isset($warehouse['qty']) && $warehouse['qty'] !== '' ? (float)$warehouse['qty'] : null;
-        $warehouseComment = (string)($warehouse['comment'] ?? '');
-        if ($status !== '') {
-            foreach ($itemIds as $itemId) {
+    if ($roleCode === 'warehouse') {
+        $warehouseItems = is_array($warehouse['items'] ?? null) ? $warehouse['items'] : [];
+        if ($warehouseItems) {
+            foreach ($decisionAvailableIds as $itemId) {
+                $warehouseItem = $warehouseItems[(string)$itemId] ?? $warehouseItems[$itemId] ?? [];
+                if (!is_array($warehouseItem)) {
+                    $warehouseItem = [];
+                }
+                $status = (string)($warehouseItem['status'] ?? '');
+                $qty = isset($warehouseItem['qty']) && $warehouseItem['qty'] !== '' ? (float)$warehouseItem['qty'] : null;
+                $warehouseComment = (string)($warehouseItem['comment'] ?? '');
+                if ($decision === 'approve' && $status === '') {
+                    throw new RuntimeException('Укажите наличие по каждой позиции.');
+                }
+                if ($status === '') {
+                    continue;
+                }
                 prDb()->queryExecute("
                     UPDATE b_pr_request_items
                     SET WAREHOUSE_STATUS = '" . prSql($status) . "',
@@ -317,6 +549,44 @@ function prApplyTaskDecision(int $taskId, int $userId, string $decision, string 
                       AND VERSION = " . $version
                 );
             }
+        } else {
+            $status = (string)($warehouse['status'] ?? '');
+            $qty = isset($warehouse['qty']) && $warehouse['qty'] !== '' ? (float)$warehouse['qty'] : null;
+            $warehouseComment = (string)($warehouse['comment'] ?? '');
+            if ($status !== '') {
+                foreach ($itemIds as $itemId) {
+                    prDb()->queryExecute("
+                        UPDATE b_pr_request_items
+                        SET WAREHOUSE_STATUS = '" . prSql($status) . "',
+                            WAREHOUSE_QTY = " . ($qty === null ? 'NULL' : (string)$qty) . ",
+                            WAREHOUSE_COMMENT = '" . prSql($warehouseComment) . "'
+                        WHERE ID = " . (int)$itemId . "
+                          AND REQUEST_ID = " . $requestId . "
+                          AND VERSION = " . $version
+                    );
+                }
+            }
+        }
+    }
+
+    if ($roleCode !== 'warehouse' && $roleCode !== 'supply' && $roleCode !== 'initiator' && $decision === 'approve' && $itemDecisions) {
+        $rejectedItemIds = [];
+        foreach ($itemDecisions as $itemId => $itemDecision) {
+            $itemId = (int)$itemId;
+            if (!in_array($itemId, $decisionAvailableIds, true)) {
+                continue;
+            }
+            $decisionValue = is_array($itemDecision) ? (string)($itemDecision['decision'] ?? '') : (string)$itemDecision;
+            if ($decisionValue === 'reject') {
+                $rejectedItemIds[] = $itemId;
+            }
+        }
+        foreach ($rejectedItemIds as $itemId) {
+            prDb()->queryExecute("
+                UPDATE b_pr_request_items
+                SET FINAL_STATUS = 'REJECTED'
+                WHERE ID = " . (int)$itemId . " AND REQUEST_ID = " . $requestId . " AND VERSION = " . $version
+            );
         }
     }
 
@@ -330,21 +600,17 @@ function prApplyTaskDecision(int $taskId, int $userId, string $decision, string 
         }
     }
 
-    $registeredByThisDecision = false;
-    if ((string)$task['ROLE_CODE'] === 'registrar' && $decision === 'approve' && trim((string)($registration['reg_number'] ?? '')) === '') {
-        throw new RuntimeException('Укажите регистрационный номер.');
-    }
-
-    if ((string)$task['ROLE_CODE'] === 'registrar' && $decision === 'approve' && !empty($registration['reg_number'])) {
-        prDb()->queryExecute("
-            UPDATE b_pr_requests
-            SET REG_NUMBER = '" . prSql((string)$registration['reg_number']) . "',
-                REG_DATE = " . (!empty($registration['reg_date']) ? "'" . prSql((string)$registration['reg_date']) . "'" : 'CURDATE()') . ",
-                STATUS = 'REGISTERED',
-                UPDATED_AT = NOW()
-            WHERE ID = " . $requestId
-        );
-        $registeredByThisDecision = true;
+    $decisionComment = $comment;
+    if ($roleCode === 'supply' && $decision === 'approve') {
+        $checklist = is_array($supply['checklist'] ?? null) ? $supply['checklist'] : [];
+        $lines = [];
+        foreach (prSupplyChecklistLabels() as $key => $label) {
+            if (empty($checklist[$key])) {
+                throw new RuntimeException('Заполните чек-лист снабжения полностью.');
+            }
+            $lines[] = '- ' . $label;
+        }
+        $decisionComment = trim($decisionComment . "\n\nЧек-лист снабжения:\n" . implode("\n", $lines));
     }
 
     $actorProfile = prUserProfileSummary($userId);
@@ -357,10 +623,10 @@ function prApplyTaskDecision(int $taskId, int $userId, string $decision, string 
         'USER_NAME' => $actorProfile['name'],
         'USER_POSITION' => $actorProfile['position'],
         'USER_DEPARTMENT' => $actorProfile['department'],
-        'ROLE_CODE' => (string)$task['ROLE_CODE'],
+        'ROLE_CODE' => $roleCode,
         'DECISION' => $decision,
         'ITEM_IDS' => prJsonEncode($itemIds),
-        'COMMENT_TEXT' => $comment,
+        'COMMENT_TEXT' => $decisionComment,
         'CREATED_AT' => prNow(),
     ]);
 
@@ -374,12 +640,9 @@ function prApplyTaskDecision(int $taskId, int $userId, string $decision, string 
     prAudit($userId, 'task_decision_' . $decision, 'task', $taskId, [
         'request_id' => $requestId,
         'item_ids' => $itemIds,
-        'comment' => $comment,
+        'comment' => $decisionComment,
+        'item_decisions' => $itemDecisions,
     ]);
-
-    if ($registeredByThisDecision) {
-        prGenerateRegisteredDocument($requestId, $userId);
-    }
 
     if ($decision === 'revision') {
         prDb()->queryExecute("UPDATE b_pr_requests SET STATUS = 'REVISION', UPDATED_AT = NOW() WHERE ID = " . $requestId);

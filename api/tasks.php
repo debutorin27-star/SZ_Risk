@@ -9,10 +9,12 @@ $action = (string)($_GET['action'] ?? $_POST['action'] ?? $body['action'] ?? 'li
 
 try {
     if ($method === 'GET' && $action === 'list') {
+        prSkipOpenExcludedWorkflowTasks((int)$user['id']);
         prApiResponse(true, ['tasks' => prFetchUserTasks((int)$user['id'])]);
     }
 
     if ($method === 'POST' && $action === 'decision') {
+        prSkipOpenExcludedWorkflowTasks((int)$user['id']);
         prApplyTaskDecision(
             (int)($body['task_id'] ?? 0),
             (int)$user['id'],
@@ -20,7 +22,8 @@ try {
             (string)($body['comment'] ?? ''),
             is_array($body['item_ids'] ?? null) ? $body['item_ids'] : [],
             is_array($body['warehouse'] ?? null) ? $body['warehouse'] : [],
-            is_array($body['registration'] ?? null) ? $body['registration'] : []
+            is_array($body['supply'] ?? null) ? $body['supply'] : [],
+            is_array($body['item_decisions'] ?? null) ? $body['item_decisions'] : []
         );
         prApiResponse(true, [
             'tasks' => prFetchUserTasks((int)$user['id']),

@@ -15,6 +15,7 @@ try {
             'assignments' => prFetchRoleAssignments(),
             'routes' => prFetchRouteRules(),
             'roles' => prRoleLabels(),
+            'supply_checklist' => prSupplyChecklistLabels(),
             'companies' => prCompanies(),
             'sites' => prSites(),
             'sites_by_company' => prSitesByCompany(),

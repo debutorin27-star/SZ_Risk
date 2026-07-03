@@ -95,7 +95,7 @@ prLog('index', [
         .subhead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:2px 0 10px}
         .subhead h2{font-size:18px;margin:0}
         .item-editor{margin-top:12px}
-        .item-row{display:grid;grid-template-columns:140px minmax(220px,2fr) 120px 120px 150px minmax(240px,2fr) 44px;gap:8px;align-items:start;margin-bottom:10px;border:1px solid var(--line);border-radius:8px;padding:10px;background:#fff}
+        .item-row{display:grid;grid-template-columns:130px minmax(190px,1.5fr) minmax(160px,1fr) 110px 110px 170px minmax(220px,1.4fr) 44px;gap:8px;align-items:start;margin-bottom:10px;border:1px solid var(--line);border-radius:8px;padding:10px;background:#fff}
         .field label{font-size:12px;margin-bottom:4px;color:#475569}
         .field-hint{margin-top:3px;color:var(--muted);font-size:12px;line-height:1.3}
         .attachments{margin-top:14px;border:1px solid var(--line);border-radius:8px;padding:12px;background:#f8fafc}
@@ -109,6 +109,13 @@ prLog('index', [
         .timeline-item.done{border-left-color:var(--ok)}.timeline-item.open{border-left-color:var(--accent)}
         .task-items{margin:10px 0;border:1px solid var(--line);border-radius:8px;background:#f8fafc;padding:8px}
         .task-items ul{margin:6px 0 0;padding-left:18px}
+        .task-table-wrap{overflow:auto;margin-top:8px}
+        .task-table{min-width:980px;background:#fff}
+        .task-table input,.task-table select{font-size:14px;padding:7px}
+        .task-table .small-input{min-width:90px}
+        .check-list{display:grid;gap:7px;margin:10px 0;border:1px solid var(--line);border-radius:8px;background:#f8fafc;padding:9px}
+        .check-row{display:flex;align-items:center;gap:8px;margin:0;font-size:14px;font-weight:600}
+        .check-row input{width:auto}
         .user-search-results{display:grid;gap:6px;margin-top:6px}
         .user-search-results button{display:block;width:100%;text-align:left;background:#fff;color:var(--text);border:1px solid var(--line);font-weight:600}
         .task-list{display:grid;gap:10px}
@@ -251,7 +258,7 @@ const PR_AUTH_CONTEXT = <?= json_encode($appAuthContext, JSON_UNESCAPED_UNICODE 
 const PR_AUTH_PAYLOAD = <?= json_encode($appAuthPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
 const initialRequestId = new URLSearchParams(location.search).get('request_id') || '';
 
-let dict = {companies:{}, sites:{}, sites_by_company:{}, initiator_profiles:{}, initiator_departments:[], request_types:{}, item_categories:{}, units:{}, roles:{}, statuses:{}};
+let dict = {companies:{}, sites:{}, sites_by_company:{}, initiator_profiles:{}, initiator_departments:[], request_types:{}, item_categories:{}, units:{}, roles:{}, statuses:{}, supply_checklist:{}};
 let currentItems = [];
 let selectedFiles = [];
 let adminCache = null;
@@ -542,6 +549,7 @@ function itemTemplate(item = {}) {
     currentItems.push({
         category: item.category || 'goods',
         name: item.name || '',
+        equipment_text: item.equipment_text || '',
         quantity: item.quantity || 1,
         unit: item.unit || 'pcs',
         estimated_price: item.estimated_price || 0,
@@ -567,6 +575,11 @@ function renderItems() {
                 <input data-field="name" placeholder="Например: насос, ремонт, услуга" value="${escapeHtml(item.name)}">
             </div>
             <div class="field">
+                <label>Место установки</label>
+                <input data-field="equipment_text" placeholder="Линия вспенивания" value="${escapeHtml(item.equipment_text)}">
+                <div class="field-hint">Линия вспенивания</div>
+            </div>
+            <div class="field">
                 <label>Количество</label>
                 <input data-field="quantity" type="number" min="0.0001" step="0.0001" value="${escapeHtml(item.quantity)}">
                 <div class="field-hint">Можно дробное: 1, 2.5</div>
@@ -576,7 +589,7 @@ function renderItems() {
                 <select data-field="unit">${optionHtml(dict.units, item.unit)}</select>
             </div>
             <div class="field">
-                <label>Цена за ед., руб.</label>
+                <label>Предполагаемая цена за ед., руб.</label>
                 <input data-field="estimated_price" type="number" min="0" step="0.01" value="${escapeHtml(item.estimated_price)}">
                 <div class="field-hint">Если неизвестно, оставьте 0</div>
             </div>
@@ -812,6 +825,7 @@ async function openRequest(id) {
     currentItems = (r.ITEMS || []).map(item => ({
         category: item.CATEGORY || 'goods',
         name: item.NAME || '',
+        equipment_text: item.EQUIPMENT_TEXT || '',
         quantity: item.QUANTITY || 1,
         unit: item.UNIT || 'pcs',
         estimated_price: item.ESTIMATED_PRICE || 0,
@@ -822,6 +836,74 @@ async function openRequest(id) {
     renderTimeline(r.TIMELINE || []);
     renderExistingAttachments(r.ATTACHMENTS || []);
     document.querySelector('[data-view="newView"]').click();
+}
+
+function warehouseStatusOptions(selected = '') {
+    return '<option value="">Выберите</option>' + optionHtml({
+        full: 'Есть полностью',
+        partial: 'Есть частично',
+        none: 'Нет',
+        na: 'Не применимо'
+    }, selected);
+}
+
+function taskRoleUsesItemApproval(roleCode) {
+    return !['warehouse', 'supply', 'initiator'].includes(roleCode || '');
+}
+
+function taskItemsHtml(task) {
+    const items = task.ITEMS || [];
+    if (!items.length) {
+        return '<div class="task-items"><b>Состав закупки</b><div class="muted">Строки не найдены.</div></div>';
+    }
+
+    const roleCode = task.ROLE_CODE || '';
+    const isWarehouse = roleCode === 'warehouse';
+    const isApproval = taskRoleUsesItemApproval(roleCode);
+    const head = `
+        <th>Наименование</th>
+        <th>Место установки</th>
+        <th>Вид</th>
+        <th>Кол-во</th>
+        <th>Предп. цена</th>
+        <th>Сумма</th>
+        <th>Комментарий</th>
+        ${isWarehouse ? '<th>Наличие</th><th>Кол-во на складе</th><th>Комментарий склада</th>' : ''}
+        ${isApproval ? '<th>Согласование</th>' : ''}
+    `;
+    const rows = items.map(item => {
+        const qty = Number(item.QUANTITY || 0);
+        const price = Number(item.ESTIMATED_PRICE || 0);
+        const amount = qty * price;
+        const itemId = escapeHtml(item.ID || '');
+        return `<tr${isWarehouse ? ` data-warehouse-row="${itemId}"` : ''}>
+            <td data-label="Наименование">${escapeHtml(item.NAME || '')}</td>
+            <td data-label="Место установки">${escapeHtml(item.EQUIPMENT_TEXT || '')}</td>
+            <td data-label="Вид">${escapeHtml((dict.item_categories || {})[item.CATEGORY] || item.CATEGORY || '')}</td>
+            <td data-label="Кол-во">${escapeHtml(qty || '')} ${escapeHtml((dict.units || {})[item.UNIT] || item.UNIT || '')}</td>
+            <td data-label="Предп. цена">${price ? escapeHtml(price.toFixed(2)) + ' руб.' : ''}</td>
+            <td data-label="Сумма">${amount ? escapeHtml(amount.toFixed(2)) + ' руб.' : ''}</td>
+            <td data-label="Комментарий">${escapeHtml(item.JUSTIFICATION || '')}</td>
+            ${isWarehouse ? `<td data-label="Наличие"><select data-warehouse-field="status">${warehouseStatusOptions(item.WAREHOUSE_STATUS || '')}</select></td>
+                <td data-label="Кол-во на складе"><input class="small-input" data-warehouse-field="qty" type="number" min="0" step="0.0001" value="${escapeHtml(item.WAREHOUSE_QTY || '')}"></td>
+                <td data-label="Комментарий склада"><input data-warehouse-field="comment" type="text" value="${escapeHtml(item.WAREHOUSE_COMMENT || '')}"></td>` : ''}
+            ${isApproval ? `<td data-label="Согласование"><select data-item-decision="${itemId}"><option value="approve">Согласовать</option><option value="reject">Не согласовать</option></select></td>` : ''}
+        </tr>`;
+    }).join('');
+
+    return `<div class="task-items">
+        <b>Состав закупки</b>
+        <div class="task-table-wrap"><table class="task-table"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div>
+        ${task.JUSTIFICATION ? `<div class="muted">Обоснование: ${escapeHtml(task.JUSTIFICATION)}</div>` : ''}
+    </div>`;
+}
+
+function supplyChecklistHtml(task) {
+    if ((task.ROLE_CODE || '') !== 'supply') return '';
+    const checklist = dict.supply_checklist || {};
+    return `<div class="check-list">
+        ${Object.entries(checklist).map(([key, label]) => `<label class="check-row"><input type="checkbox" data-supply-check="${escapeHtml(key)}"> ${escapeHtml(label)}</label>`).join('')}
+    </div>`;
 }
 
 async function loadTasks() {
@@ -841,41 +923,19 @@ async function loadTasks() {
                 <div>
                     <b>Заявка #${escapeHtml(task.REQUEST_ID)}: ${escapeHtml(task.STEP_TITLE)}</b>
                     <div class="muted">${escapeHtml(task.SITE_NAME || '')} · ${escapeHtml(task.DEPARTMENT_NAME || '')} · ${escapeHtml(task.TOTAL_AMOUNT || '0')} ${escapeHtml(task.CURRENCY || '')}</div>
+                    <div class="muted">Инициатор: ${escapeHtml([task.INITIATOR_NAME || '', task.INITIATOR_POSITION || ''].filter(Boolean).join(' · '))}</div>
                 </div>
                 <span class="badge open">${escapeHtml((dict.roles || {})[task.ROLE_CODE] || task.ROLE_CODE)}</span>
             </div>
             ${task.IS_SUBSTITUTE === 'Y' ? `<div class="notice">Вы действуете как замещающий. Основной исполнитель: #${escapeHtml(task.ASSIGNED_USER_ID)} ${escapeHtml(task.ASSIGNED_USER_NAME || '')}</div>` : ''}
-            <div class="task-items">
-                <b>Состав закупки</b>
-                ${(task.ITEMS || []).length ? `<ul>${(task.ITEMS || []).map(item => {
-                    const qty = Number(item.QUANTITY || 0);
-                    const price = Number(item.ESTIMATED_PRICE || 0);
-                    const amount = qty * price;
-                    return `<li>
-                        ${escapeHtml(item.NAME || '')}
-                        <span class="muted"> · ${escapeHtml(qty || '')} ${escapeHtml((dict.units || {})[item.UNIT] || item.UNIT || '')} · ${escapeHtml((dict.item_categories || {})[item.CATEGORY] || item.CATEGORY || '')}${price ? ' · ' + escapeHtml(price.toFixed(2)) + ' руб./ед.' : ''}${amount ? ' · ' + escapeHtml(amount.toFixed(2)) + ' руб.' : ''}</span>
-                        ${item.JUSTIFICATION ? `<div class="muted">${escapeHtml(item.JUSTIFICATION)}</div>` : ''}
-                    </li>`;
-                }).join('')}</ul>` : '<div class="muted">Строки не найдены.</div>'}
-                ${task.JUSTIFICATION ? `<div class="muted">Обоснование: ${escapeHtml(task.JUSTIFICATION)}</div>` : ''}
-            </div>
+            ${taskItemsHtml(task)}
             ${(task.ATTACHMENTS || []).length ? `<div class="task-items"><b>Файлы заявки</b>${attachmentListHtml(task.ATTACHMENTS || [])}</div>` : ''}
-            ${task.ROLE_CODE === 'warehouse' ? `
-                <div class="grid">
-                    <div class="col-3"><label>Наличие</label><select data-task-field="warehouse_status"><option value="full">Есть полностью</option><option value="partial">Есть частично</option><option value="none">Нет</option><option value="na">Не применимо</option></select></div>
-                    <div class="col-3"><label>Количество</label><input data-task-field="warehouse_qty" type="number" min="0" step="0.0001"></div>
-                    <div class="col-6"><label>Комментарий склада</label><input data-task-field="warehouse_comment" type="text"></div>
-                </div>` : ''}
-            ${task.ROLE_CODE === 'registrar' ? `
-                <div class="grid">
-                    <div class="col-6"><label>Регистрационный номер</label><input data-task-field="reg_number" type="text"></div>
-                    <div class="col-3"><label>Дата регистрации</label><input data-task-field="reg_date" type="date"></div>
-                </div>` : ''}
+            ${supplyChecklistHtml(task)}
             <label>Комментарий</label>
             <textarea data-task-field="comment"></textarea>
             <div class="actions">
                 <button type="button" data-decision="approve">Согласовать</button>
-                ${task.ROLE_CODE !== 'registrar' ? '<button type="button" class="secondary" data-decision="revision">Вернуть</button>' : ''}
+                <button type="button" class="secondary" data-decision="revision">Вернуть</button>
                 <button type="button" class="danger" data-decision="reject">Отклонить</button>
                 <button type="button" class="light" data-open-request="${escapeHtml(task.REQUEST_ID)}">Открыть заявку</button>
             </div>
@@ -884,13 +944,32 @@ async function loadTasks() {
 
 async function sendDecision(taskEl, decision) {
     const field = name => taskEl.querySelector(`[data-task-field="${name}"]`)?.value || '';
+    const warehouseItems = {};
+    taskEl.querySelectorAll('[data-warehouse-row]').forEach(row => {
+        const itemId = row.dataset.warehouseRow || '';
+        if (!itemId) return;
+        warehouseItems[itemId] = {
+            status: row.querySelector('[data-warehouse-field="status"]')?.value || '',
+            qty: row.querySelector('[data-warehouse-field="qty"]')?.value || '',
+            comment: row.querySelector('[data-warehouse-field="comment"]')?.value || ''
+        };
+    });
+    const itemDecisions = {};
+    taskEl.querySelectorAll('[data-item-decision]').forEach(select => {
+        if (select.dataset.itemDecision) itemDecisions[select.dataset.itemDecision] = select.value;
+    });
+    const supplyChecklist = {};
+    taskEl.querySelectorAll('[data-supply-check]').forEach(input => {
+        supplyChecklist[input.dataset.supplyCheck] = input.checked;
+    });
     await api('tasks.php', {method:'POST', body:{
         action:'decision',
         task_id: Number(taskEl.dataset.task),
         decision,
         comment: field('comment'),
-        warehouse: {status: field('warehouse_status'), qty: field('warehouse_qty'), comment: field('warehouse_comment')},
-        registration: {reg_number: field('reg_number'), reg_date: field('reg_date')}
+        warehouse: {items: warehouseItems},
+        supply: {checklist: supplyChecklist},
+        item_decisions: itemDecisions
     }});
     showNotice('Решение сохранено.', 'success');
     await loadTasks();
@@ -1086,7 +1165,7 @@ function renderAdmin(data) {
                         <div class="col-6"><label>Тип заявки</label><select id="routeRequestType">${routeRequestTypeOptions}</select></div>
                         <div class="col-6"><label>Минимальная сумма</label><input id="routeMinAmount" type="number" min="0" step="0.01" value="${escapeHtml(route.MIN_AMOUNT || '')}"></div>
                         <div class="col-6"><label>Максимальная сумма</label><input id="routeMaxAmount" type="number" min="0" step="0.01" value="${escapeHtml(route.MAX_AMOUNT || '')}"></div>
-                        <div class="col-6"><label>Должность инициатора содержит</label><input id="routeInitiatorPosition" value="${escapeHtml(route.INITIATOR_POSITION || '')}"></div>
+                        <div class="col-6"><label>Должность/подразделение инициатора содержит</label><input id="routeInitiatorPosition" value="${escapeHtml(route.INITIATOR_POSITION || '')}"></div>
                         <div class="col-6"><label>Вид строки</label><select id="routeItemCategory">${routeCategoryOptions}</select></div>
                     </div>
                     <label><input id="routeActive" type="checkbox" ${route.IS_ACTIVE === 'N' ? '' : 'checked'} style="width:auto"> Активен</label>
