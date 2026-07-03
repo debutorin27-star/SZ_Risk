@@ -588,6 +588,21 @@ function prSaveRouteRule(array $data, int $adminUserId): int
     return $id;
 }
 
+function prIsBitrixAdminUser(int $userId): bool
+{
+    if ($userId <= 0 || !class_exists('CUser')) {
+        return false;
+    }
+
+    try {
+        $groups = array_map('intval', CUser::GetUserGroup($userId));
+        return in_array(1, $groups, true);
+    } catch (Throwable $e) {
+        prLog('auth', ['event' => 'bitrix_admin_check_failed', 'user_id' => $userId, 'message' => $e->getMessage()]);
+        return false;
+    }
+}
+
 function prIsProcessAdmin(int $userId): bool
 {
     prEnsureTables();
@@ -598,8 +613,17 @@ function prIsProcessAdmin(int $userId): bool
     if (in_array($userId, PR_ADMIN_USER_IDS, true)) {
         return true;
     }
+    if (prIsBitrixAdminUser($userId)) {
+        return true;
+    }
     global $USER;
-    if (is_object($USER) && method_exists($USER, 'IsAdmin') && $USER->IsAdmin()) {
+    if (
+        is_object($USER)
+        && method_exists($USER, 'IsAdmin')
+        && method_exists($USER, 'GetID')
+        && (int)$USER->GetID() === $userId
+        && $USER->IsAdmin()
+    ) {
         return true;
     }
     if (PR_ADMIN_GROUP_IDS && class_exists('CUser')) {

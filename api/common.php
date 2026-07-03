@@ -68,11 +68,11 @@ function prRequireApiUser(): array
     }
 
     $userId = 0;
-    if (is_object($USER) && $USER->IsAuthorized()) {
-        $userId = (int)$USER->GetID();
-    }
-    if ($userId <= 0 && !empty($authState['user_id'])) {
+    if (!empty($authState['user_id'])) {
         $userId = (int)$authState['user_id'];
+    }
+    if ($userId <= 0 && is_object($USER) && $USER->IsAuthorized()) {
+        $userId = (int)$USER->GetID();
     }
     if ($userId <= 0) {
         prApiResponse(false, ['errors' => ['Не удалось определить пользователя.']], 401);

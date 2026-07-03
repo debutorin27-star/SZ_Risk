@@ -125,13 +125,9 @@ function prEnsureAuthorizedFromRequest(string $scope = 'auth'): array
                 return ['ok' => false, 'source' => 'rest', 'error' => 'empty_user_id'];
             }
 
-            if (is_object($USER) && (!$USER->IsAuthorized() || (int)$USER->GetID() !== $userId)) {
-                $USER->Authorize($userId, false, true);
-            }
-
             return [
                 'ok' => true,
-                'source' => is_object($USER) && $USER->IsAuthorized() ? 'rest_authorize' : 'rest_only',
+                'source' => $sessionAuthorized && $sessionUserId === $userId ? 'rest_session_match' : 'rest_only',
                 'user_id' => $userId,
                 'rest_user' => $restUser,
                 'auth' => $auth,
