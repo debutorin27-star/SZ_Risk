@@ -580,8 +580,8 @@ function renderItems() {
             </div>
             <div class="field">
                 <label>Место установки</label>
-                <input data-field="equipment_text" placeholder="Линия вспенивания" value="${escapeHtml(item.equipment_text)}">
-                <div class="field-hint">Линия вспенивания</div>
+                <input data-field="equipment_text" placeholder="ABLG1 Машина резки на вспенивании" value="${escapeHtml(item.equipment_text)}">
+                <div class="field-hint">ABLG1 Машина резки на вспенивании</div>
             </div>
             <div class="field">
                 <label>Количество</label>

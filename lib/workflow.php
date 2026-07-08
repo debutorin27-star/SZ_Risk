@@ -355,7 +355,7 @@ function prStepHasOpenTasks(int $requestId, int $version, int $stepIndex): bool
 
 function prRegistrationNumberForRequest(int $requestId): string
 {
-    return 'ЗП-' . date('Y') . '-' . str_pad((string)$requestId, 5, '0', STR_PAD_LEFT);
+    return str_pad((string)$requestId, 6, '0', STR_PAD_LEFT);
 }
 
 function prEnsureRequestRegistration(int $requestId, int $actorUserId): void
@@ -366,7 +366,9 @@ function prEnsureRequestRegistration(int $requestId, int $actorUserId): void
     }
 
     $existingNumber = trim((string)($request['REG_NUMBER'] ?? ''));
-    $regNumber = $existingNumber !== '' ? $existingNumber : prRegistrationNumberForRequest($requestId);
+    $regNumber = preg_match('/^\d{6}$/', $existingNumber) === 1
+        ? $existingNumber
+        : prRegistrationNumberForRequest($requestId);
 
     prDb()->queryExecute("
         UPDATE b_pr_requests
@@ -376,14 +378,10 @@ function prEnsureRequestRegistration(int $requestId, int $actorUserId): void
         WHERE ID = " . $requestId
     );
 
-    if ($existingNumber === '') {
+    if ($existingNumber !== $regNumber) {
         prAudit($actorUserId, 'request_auto_registered', 'request', $requestId, ['reg_number' => $regNumber]);
     }
 
-    $request = prGetRequest($requestId);
-    if ($request && empty($request['GENERATED_DOCUMENT_FILE_ID'])) {
-        prGenerateRegisteredDocument($requestId, $actorUserId);
-    }
 }
 
 function prWorkflowStepNeedsRegistration(array $step): bool
@@ -393,6 +391,14 @@ function prWorkflowStepNeedsRegistration(array $step): bool
     $stepCode = (string)($step['code'] ?? '');
 
     return $roleCode === 'supply' || $status === 'EXECUTION' || $stepCode === 'automation_execution';
+}
+
+function prWorkflowStepNeedsGeneratedDocument(array $step): bool
+{
+    $status = (string)($step['status'] ?? '');
+    $stepCode = (string)($step['code'] ?? '');
+
+    return $status === 'ACCEPTANCE' || $stepCode === 'initiator_acceptance';
 }
 
 function prAdvanceWorkflowIfReady(int $requestId, int $version, int $stepIndex, int $actorUserId): void
@@ -430,12 +436,17 @@ function prAdvanceWorkflowIfReady(int $requestId, int $version, int $stepIndex, 
 
     if (!$nextStep) {
         prEnsureRequestRegistration($requestId, $actorUserId);
+        $request = prGetRequest($requestId);
+        if ($request && empty($request['GENERATED_DOCUMENT_FILE_ID'])) {
+            prGenerateRegisteredDocument($requestId, $actorUserId);
+        }
         prDb()->queryExecute("UPDATE b_pr_requests SET STATUS = 'DONE', UPDATED_AT = NOW() WHERE ID = " . $requestId);
         prAudit($actorUserId, 'workflow_done', 'request', $requestId);
         return;
     }
 
-    if (prWorkflowStepNeedsRegistration($nextStep)) {
+    $needsGeneratedDocument = prWorkflowStepNeedsGeneratedDocument($nextStep);
+    if (prWorkflowStepNeedsRegistration($nextStep) || $needsGeneratedDocument) {
         prEnsureRequestRegistration($requestId, $actorUserId);
     }
 
@@ -445,6 +456,10 @@ function prAdvanceWorkflowIfReady(int $requestId, int $version, int $stepIndex, 
             UPDATED_AT = NOW()
         WHERE ID = " . $requestId
     );
+
+    if ($needsGeneratedDocument) {
+        prGenerateRegisteredDocument($requestId, $actorUserId);
+    }
 
     $request = prGetRequest($requestId);
     prCreateStepTasks($request, $nextIndex, $nextStep, $actorUserId);
