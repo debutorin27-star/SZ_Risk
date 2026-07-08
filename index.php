@@ -851,8 +851,15 @@ function warehouseStatusOptions(selected = '') {
     }, selected);
 }
 
-function taskRoleUsesItemApproval(roleCode) {
-    return !['warehouse', 'supply', 'initiator'].includes(roleCode || '');
+function taskUsesItemApproval(task) {
+    const roleCode = task.ROLE_CODE || '';
+    const stepCode = task.STEP_CODE || '';
+    const checklist = task.CHECKLIST_LABELS || {};
+    if (Object.keys(checklist).length) return false;
+    if ((task.REQUEST_STATUS || '') === 'ACCEPTANCE') return false;
+    if (['warehouse', 'supply', 'initiator'].includes(roleCode)) return false;
+    if (['warehouse', 'supply', 'automation_execution', 'initiator_acceptance'].includes(stepCode)) return false;
+    return true;
 }
 
 function taskItemsHtml(task) {
@@ -863,7 +870,7 @@ function taskItemsHtml(task) {
 
     const roleCode = task.ROLE_CODE || '';
     const isWarehouse = roleCode === 'warehouse';
-    const isApproval = taskRoleUsesItemApproval(roleCode);
+    const isApproval = taskUsesItemApproval(task);
     const head = `
         <th>Наименование</th>
         <th>Место установки</th>
@@ -910,6 +917,12 @@ function taskChecklistHtml(task) {
         <b>${escapeHtml(task.CHECKLIST_TITLE || 'Чек-лист')}</b>
         ${Object.entries(checklist).map(([key, label]) => `<label class="check-row"><input type="checkbox" data-checklist-key="${escapeHtml(key)}"${values[key] ? ' checked' : ''}> ${escapeHtml(label)}</label>`).join('')}
         <div class="actions"><button type="button" class="light" data-save-checklist>Сохранить чек-лист</button></div>
+        <label>Делегировать задание</label>
+        <div class="grid">
+            <div class="col-8"><input data-delegate-search type="text" placeholder="ФИО, email, логин или ID"></div>
+            <div class="col-4"><button type="button" class="light" data-search-delegate>Найти</button></div>
+        </div>
+        <div data-delegate-results class="user-search-results"></div>
     </div>`;
 }
 
@@ -995,6 +1008,45 @@ async function saveTaskChecklist(taskEl) {
         checklist: collectTaskChecklist(taskEl)
     }});
     showNotice('Чек-лист сохранен.', 'success');
+    await loadTasks();
+}
+
+function renderTaskDelegateResults(taskEl, users) {
+    const box = taskEl.querySelector('[data-delegate-results]');
+    if (!box) return;
+    if (!users || !users.length) {
+        box.innerHTML = '<div class="muted">Пользователи не найдены.</div>';
+        return;
+    }
+    box.innerHTML = users.map(user => `<button type="button" data-delegate-user-id="${escapeHtml(user.id)}">
+        ${escapeHtml(user.name || ('Пользователь #' + user.id))}
+        <span class="muted">#${escapeHtml(user.id)}${user.position ? ' · ' + escapeHtml(user.position) : ''}${user.department ? ' · ' + escapeHtml(user.department) : ''}</span>
+    </button>`).join('');
+}
+
+async function searchTaskDelegates(taskEl) {
+    const input = taskEl.querySelector('[data-delegate-search]');
+    const box = taskEl.querySelector('[data-delegate-results]');
+    if (box) box.innerHTML = '<div class="muted">Ищем...</div>';
+    const data = await api('users.php', {params:{
+        purpose:'delegate',
+        task_id:Number(taskEl.dataset.task),
+        q:(input?.value || '').trim()
+    }});
+    renderTaskDelegateResults(taskEl, data.users || []);
+}
+
+async function delegateTask(taskEl, delegateUserId) {
+    if (!delegateUserId) {
+        showNotice('Выберите сотрудника для делегирования.', 'error');
+        return;
+    }
+    await api('tasks.php', {method:'POST', body:{
+        action:'delegate',
+        task_id:Number(taskEl.dataset.task),
+        delegate_user_id:Number(delegateUserId)
+    }});
+    showNotice('Задание делегировано.', 'success');
     await loadTasks();
 }
 
@@ -1262,6 +1314,10 @@ function bindEvents() {
             e.preventDefault();
             searchAdminUsers('substitute').catch(err => showNotice(err.message, 'error'));
         }
+        if (e.target.closest('[data-delegate-search]') && e.key === 'Enter') {
+            e.preventDefault();
+            searchTaskDelegates(e.target.closest('.task')).catch(err => showNotice(err.message, 'error'));
+        }
     });
     document.body.addEventListener('change', e => {
         if (e.target.id === 'routeSelector') {
@@ -1279,6 +1335,10 @@ function bindEvents() {
         if (open) openRequest(open.dataset.openRequest).catch(err => showNotice(err.message, 'error'));
         const saveChecklist = e.target.closest('[data-save-checklist]');
         if (saveChecklist) saveTaskChecklist(saveChecklist.closest('.task')).catch(err => showNotice(err.message, 'error'));
+        const searchDelegate = e.target.closest('[data-search-delegate]');
+        if (searchDelegate) searchTaskDelegates(searchDelegate.closest('.task')).catch(err => showNotice(err.message, 'error'));
+        const delegateUser = e.target.closest('[data-delegate-user-id]');
+        if (delegateUser) delegateTask(delegateUser.closest('.task'), delegateUser.dataset.delegateUserId).catch(err => showNotice(err.message, 'error'));
         const decision = e.target.closest('[data-decision]');
         if (decision) sendDecision(decision.closest('.task'), decision.dataset.decision).catch(err => showNotice(err.message, 'error'));
         const del = e.target.closest('[data-delete-assignment]');

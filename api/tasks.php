@@ -45,6 +45,19 @@ try {
         ]);
     }
 
+    if ($method === 'POST' && $action === 'delegate') {
+        prSkipOpenExcludedWorkflowTasks((int)$user['id']);
+        prDelegateChecklistTask(
+            (int)($body['task_id'] ?? 0),
+            (int)$user['id'],
+            (int)($body['delegate_user_id'] ?? 0)
+        );
+        prApiResponse(true, [
+            'tasks' => prFetchUserTasks((int)$user['id']),
+            'message' => 'Задание делегировано.',
+        ]);
+    }
+
     prApiResponse(false, ['errors' => ['Неизвестное действие заданий.']], 400);
 } catch (Throwable $e) {
     prLog('tasks_api', ['event' => 'exception', 'action' => $action, 'message' => $e->getMessage()]);

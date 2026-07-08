@@ -89,6 +89,13 @@ function prDocumentApprovalDate(array $request): string
     return prDocumentDate($latest);
 }
 
+function prDocumentActiveItems(array $request): array
+{
+    return array_values(array_filter(array_values($request['ITEMS'] ?? []), static function (array $item): bool {
+        return (string)($item['FINAL_STATUS'] ?? 'ACTIVE') === 'ACTIVE';
+    }));
+}
+
 function prDocumentEnsurePdfEngine(): bool
 {
     if (class_exists('\\Dompdf\\Dompdf')) {
@@ -116,7 +123,7 @@ function prDocumentEnsurePdfEngine(): bool
 
 function prRenderRegisteredDocumentHtml(array $request): string
 {
-    $items = array_values($request['ITEMS'] ?? []);
+    $items = prDocumentActiveItems($request);
     $timeline = array_values($request['TIMELINE'] ?? []);
     $attachments = array_values($request['ATTACHMENTS'] ?? []);
     $currency = (string)($request['CURRENCY'] ?? PR_DEFAULT_CURRENCY);
@@ -422,11 +429,14 @@ function prDocumentMergePdfFiles(array $files, string $targetFile): bool
     return is_file($targetFile) && filesize($targetFile) > 0;
 }
 
-function prGenerateRegisteredDocument(int $requestId, int $actorUserId): ?int
+function prGenerateRegisteredDocument(int $requestId, int $actorUserId, bool $requirePdf = false): ?int
 {
     prEnsureTables();
     if (!class_exists('CFile')) {
         prAudit($actorUserId, 'registered_document_skipped', 'request', $requestId, ['reason' => 'CFile unavailable']);
+        if ($requirePdf) {
+            throw new RuntimeException('Не удалось сформировать PDF: файловый модуль Bitrix недоступен.');
+        }
         return null;
     }
 
@@ -445,11 +455,22 @@ function prGenerateRegisteredDocument(int $requestId, int $actorUserId): ?int
     if (prDocumentRenderPdfToFile($html, $mainPdf)) {
         $extension = 'pdf';
         $mime = 'application/pdf';
-        $pdfFiles = array_merge([$mainPdf], prDocumentAttachmentPdfFiles($request, $workDir));
+        $attachmentPdfFiles = prDocumentAttachmentPdfFiles($request, $workDir);
+        $pdfFiles = array_merge([$mainPdf], $attachmentPdfFiles);
         if (!prDocumentMergePdfFiles($pdfFiles, $resultFile)) {
+            if ($requirePdf && count($attachmentPdfFiles) > 0) {
+                prDocumentRemoveDir($workDir);
+                prAudit($actorUserId, 'registered_document_failed', 'request', $requestId, ['reason' => 'PDF merge failed']);
+                throw new RuntimeException('Не удалось скрепить PDF документа с приложенными файлами.');
+            }
             $resultFile = $mainPdf;
         }
     } else {
+        if ($requirePdf) {
+            prDocumentRemoveDir($workDir);
+            prAudit($actorUserId, 'registered_document_failed', 'request', $requestId, ['reason' => 'PDF engine unavailable']);
+            throw new RuntimeException('Не удалось сформировать PDF. Проверьте dompdf и PHP-расширения.');
+        }
         $resultFile = $workDir . '/result.html';
         file_put_contents($resultFile, $html);
     }
@@ -457,6 +478,9 @@ function prGenerateRegisteredDocument(int $requestId, int $actorUserId): ?int
     if (!is_file($resultFile)) {
         prDocumentRemoveDir($workDir);
         prAudit($actorUserId, 'registered_document_failed', 'request', $requestId, ['reason' => 'document file was not created']);
+        if ($requirePdf) {
+            throw new RuntimeException('Не удалось сформировать PDF: файл документа не создан.');
+        }
         return null;
     }
 
@@ -473,6 +497,9 @@ function prGenerateRegisteredDocument(int $requestId, int $actorUserId): ?int
     if (!$fileId) {
         prDocumentRemoveDir($workDir);
         prAudit($actorUserId, 'registered_document_failed', 'request', $requestId, ['reason' => 'CFile::SaveFile failed']);
+        if ($requirePdf) {
+            throw new RuntimeException('Не удалось сохранить PDF в Bitrix.');
+        }
         return null;
     }
 

@@ -36,6 +36,13 @@ function prNotifyCompactItems(array $items, int $limit = 5, string $currency = P
     return $lines ? implode("\n", $lines) : 'Строки не заполнены';
 }
 
+function prNotifyActiveItems(array $request): array
+{
+    return array_values(array_filter(array_values($request['ITEMS'] ?? []), static function (array $item): bool {
+        return (string)($item['FINAL_STATUS'] ?? 'ACTIVE') === 'ACTIVE';
+    }));
+}
+
 function prNotifyBuildPayload(array $request, array $step, int $taskId = 0): array
 {
     $requestId = (int)($request['ID'] ?? 0);
@@ -45,6 +52,7 @@ function prNotifyBuildPayload(array $request, array $step, int $taskId = 0): arr
     $roleTitle = prRoleLabels()[$roleCode] ?? $roleCode;
     $requestType = prRequestTypes()[(string)($request['REQUEST_TYPE'] ?? '')] ?? (string)($request['REQUEST_TYPE'] ?? '');
     $currency = (string)($request['CURRENCY'] ?? PR_DEFAULT_CURRENCY);
+    $items = prNotifyActiveItems($request);
 
     $title = 'Нужно принять решение по заявке на закупку #' . $requestId;
     $lines = [
@@ -58,7 +66,7 @@ function prNotifyBuildPayload(array $request, array $step, int $taskId = 0): arr
         'Сумма: ' . prNotifyMoney($request['TOTAL_AMOUNT'] ?? 0, $currency),
         '',
         'Состав закупки:',
-        prNotifyCompactItems(is_array($request['ITEMS'] ?? null) ? $request['ITEMS'] : [], 5, $currency),
+        prNotifyCompactItems($items, 5, $currency),
         '',
         'Открыть заявку: ' . $link,
     ];
@@ -72,7 +80,7 @@ function prNotifyBuildPayload(array $request, array $step, int $taskId = 0): arr
         '[B]Тип заявки:[/B] ' . prNotifyTextValue($requestType) . "\n" .
         '[B]Сумма:[/B] ' . prNotifyMoney($request['TOTAL_AMOUNT'] ?? 0, $currency) . "\n\n" .
         '[B]Состав закупки:[/B]' . "\n" .
-        prNotifyCompactItems(is_array($request['ITEMS'] ?? null) ? $request['ITEMS'] : [], 5, $currency) . "\n\n" .
+        prNotifyCompactItems($items, 5, $currency) . "\n\n" .
         '[URL=' . $link . ']Открыть заявку[/URL]';
 
     return [

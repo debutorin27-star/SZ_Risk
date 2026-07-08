@@ -393,12 +393,13 @@ function prWorkflowStepNeedsRegistration(array $step): bool
     return $roleCode === 'supply' || $status === 'EXECUTION' || $stepCode === 'automation_execution';
 }
 
-function prWorkflowStepNeedsGeneratedDocument(array $step): bool
+function prWorkflowStepNeedsGeneratedDocument(array $step, array $request): bool
 {
-    $status = (string)($step['status'] ?? '');
+    $roleCode = (string)($step['role'] ?? '');
     $stepCode = (string)($step['code'] ?? '');
+    $requestType = (string)($request['REQUEST_TYPE'] ?? '');
 
-    return $status === 'ACCEPTANCE' || $stepCode === 'initiator_acceptance';
+    return (bool)prTaskChecklistLabels($roleCode, $requestType, $stepCode);
 }
 
 function prAdvanceWorkflowIfReady(int $requestId, int $version, int $stepIndex, int $actorUserId): void
@@ -445,9 +446,17 @@ function prAdvanceWorkflowIfReady(int $requestId, int $version, int $stepIndex, 
         return;
     }
 
-    $needsGeneratedDocument = prWorkflowStepNeedsGeneratedDocument($nextStep);
+    $needsGeneratedDocument = prWorkflowStepNeedsGeneratedDocument($nextStep, $request);
     if (prWorkflowStepNeedsRegistration($nextStep) || $needsGeneratedDocument) {
         prEnsureRequestRegistration($requestId, $actorUserId);
+    }
+
+    if ($needsGeneratedDocument) {
+        prGenerateRegisteredDocument($requestId, $actorUserId, true);
+        $request = prGetRequest($requestId);
+        if (!$request) {
+            return;
+        }
     }
 
     prDb()->queryExecute("
@@ -456,10 +465,6 @@ function prAdvanceWorkflowIfReady(int $requestId, int $version, int $stepIndex, 
             UPDATED_AT = NOW()
         WHERE ID = " . $requestId
     );
-
-    if ($needsGeneratedDocument) {
-        prGenerateRegisteredDocument($requestId, $actorUserId);
-    }
 
     $request = prGetRequest($requestId);
     prCreateStepTasks($request, $nextIndex, $nextStep, $actorUserId);
@@ -534,6 +539,33 @@ function prChecklistContextForTask(array $task): array
     ];
 }
 
+function prTaskHasChecklist(array $task): bool
+{
+    $context = prChecklistContextForTask($task);
+    return !empty($context['labels']);
+}
+
+function prTaskAllowsItemApproval(array $task): bool
+{
+    $roleCode = (string)($task['ROLE_CODE'] ?? '');
+    $stepCode = (string)($task['STEP_CODE'] ?? '');
+
+    if (in_array($roleCode, ['warehouse', 'supply', 'initiator'], true)) {
+        return false;
+    }
+    if (in_array($stepCode, ['warehouse', 'supply', 'automation_execution', 'initiator_acceptance'], true)) {
+        return false;
+    }
+    if (array_key_exists('CHECKLIST_LABELS', $task) && is_array($task['CHECKLIST_LABELS'])) {
+        return !$task['CHECKLIST_LABELS'];
+    }
+    if (array_key_exists('CHECKLIST_JSON', $task) && trim((string)($task['CHECKLIST_JSON'] ?? '')) !== '') {
+        return false;
+    }
+
+    return !prTaskHasChecklist($task);
+}
+
 function prNormalizeTaskChecklist(array $labels, array $currentChecklist, array $incomingChecklist): array
 {
     $result = [];
@@ -572,6 +604,54 @@ function prSaveTaskChecklist(int $taskId, int $userId, array $checklist): array
     return $savedChecklist;
 }
 
+function prDelegateChecklistTask(int $taskId, int $actorUserId, int $delegateUserId): array
+{
+    prEnsureTables();
+    $task = prFetchTask($taskId);
+    if (!prTaskCanBeEditedByUser($task, $actorUserId)) {
+        throw new RuntimeException('Задание недоступно.');
+    }
+    if (!prTaskHasChecklist($task)) {
+        throw new RuntimeException('Делегирование доступно только для задания с чек-листом.');
+    }
+    if ($delegateUserId <= 0) {
+        throw new RuntimeException('Выберите сотрудника для делегирования.');
+    }
+    if ((int)$task['ASSIGNED_USER_ID'] === $delegateUserId) {
+        throw new RuntimeException('Этот сотрудник уже является исполнителем задания.');
+    }
+
+    $delegate = prUserProfileSummary($delegateUserId);
+    if ((int)$delegate['id'] <= 0) {
+        throw new RuntimeException('Не удалось определить выбранного сотрудника.');
+    }
+
+    prDbUpdate('b_pr_tasks', [
+        'ASSIGNED_USER_ID' => (int)$delegate['id'],
+        'ASSIGNED_USER_NAME' => $delegate['name'],
+        'SUBSTITUTE_USER_ID' => 0,
+        'SUBSTITUTE_USER_NAME' => '',
+    ], 'ID = ' . $taskId);
+
+    $request = prGetRequest((int)$task['REQUEST_ID']);
+    if ($request) {
+        prNotifyUser((int)$delegate['id'], $request, [
+            'code' => (string)($task['STEP_CODE'] ?? ''),
+            'role' => (string)($task['ROLE_CODE'] ?? ''),
+            'title' => (string)($task['STEP_TITLE'] ?? 'Делегированное задание'),
+        ], $taskId);
+    }
+
+    prAudit($actorUserId, 'task_delegated', 'task', $taskId, [
+        'request_id' => (int)$task['REQUEST_ID'],
+        'from_user_id' => (int)$task['ASSIGNED_USER_ID'],
+        'to_user_id' => (int)$delegate['id'],
+        'to_user_name' => $delegate['name'],
+    ]);
+
+    return prFetchTask($taskId) ?: [];
+}
+
 function prApplyTaskDecision(
     int $taskId,
     int $userId,
@@ -606,6 +686,10 @@ function prApplyTaskDecision(
     if (!$itemIds) {
         $itemIds = $decisionAvailableIds;
     }
+
+    $connection = prDb();
+    $connection->startTransaction();
+    try {
 
     if ($roleCode === 'warehouse') {
         $warehouseItems = is_array($warehouse['items'] ?? null) ? $warehouse['items'] : [];
@@ -654,7 +738,7 @@ function prApplyTaskDecision(
         }
     }
 
-    if ($roleCode !== 'warehouse' && $roleCode !== 'supply' && $roleCode !== 'initiator' && $decision === 'approve' && $itemDecisions) {
+    if (prTaskAllowsItemApproval($task) && $decision === 'approve' && $itemDecisions) {
         $rejectedItemIds = [];
         foreach ($itemDecisions as $itemId => $itemDecision) {
             $itemId = (int)$itemId;
@@ -742,14 +826,21 @@ function prApplyTaskDecision(
 
     if ($decision === 'revision') {
         prDb()->queryExecute("UPDATE b_pr_requests SET STATUS = 'REVISION', UPDATED_AT = NOW() WHERE ID = " . $requestId);
+        $connection->commitTransaction();
         return;
     }
 
     $activeIds = prActiveItemIds($requestId, $version);
     if (!$activeIds) {
         prDb()->queryExecute("UPDATE b_pr_requests SET STATUS = 'REJECTED', UPDATED_AT = NOW() WHERE ID = " . $requestId);
+        $connection->commitTransaction();
         return;
     }
 
     prAdvanceWorkflowIfReady($requestId, $version, (int)$task['STEP_INDEX'], $userId);
+    $connection->commitTransaction();
+    } catch (Throwable $e) {
+        $connection->rollbackTransaction();
+        throw $e;
+    }
 }

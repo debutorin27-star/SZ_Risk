@@ -3,7 +3,16 @@
 require_once __DIR__ . '/common.php';
 
 $user = prRequireApiUser();
-prRequireAdmin($user);
+$purpose = (string)($_GET['purpose'] ?? $_POST['purpose'] ?? '');
+$delegateTaskId = (int)($_GET['task_id'] ?? $_POST['task_id'] ?? 0);
+if ($purpose === 'delegate') {
+    $delegateTask = prFetchTask($delegateTaskId);
+    if (!prTaskCanBeEditedByUser($delegateTask, (int)$user['id']) || !prTaskHasChecklist($delegateTask)) {
+        prApiResponse(false, ['errors' => ['Поиск сотрудника доступен только из вашего открытого задания с чек-листом.']], 403);
+    }
+} else {
+    prRequireAdmin($user);
+}
 
 function prApiUserFullName(array $row): string
 {
