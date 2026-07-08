@@ -56,25 +56,27 @@ prLog('index', [
     <title><?= prH(PR_APP_TITLE) ?></title>
     <script src="//api.bitrix24.com/api/v1/"></script>
     <style>
-        :root{--bg:#f4f6f8;--panel:#fff;--line:#d9e0e8;--text:#152033;--muted:#64748b;--accent:#1769e0;--accent-dark:#0f4fb0;--danger:#b42318;--ok:#157347;--warn:#9a6700}
-        html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;overflow-x:hidden}
-        .shell{max-width:none;margin:0 auto;padding:10px}
-        .top-status{position:sticky;top:0;z-index:20;margin:-12px -12px 12px;padding:10px 12px;background:#eaf3ff;color:#0f4f8f;border-bottom:1px solid #c6def8;font-size:13px}
+        :root{--bg:#f4f6f8;--panel:#fff;--line:#d9e0e8;--line-strong:#c6d0dc;--text:#152033;--muted:#64748b;--soft:#f8fafc;--accent:#1769e0;--accent-dark:#0f4fb0;--danger:#b42318;--ok:#157347;--warn:#9a6700}
+        html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;line-height:1.35;overflow-x:hidden}
+        .shell{max-width:none;margin:0 auto;padding:12px}
+        .top-status{position:sticky;top:0;z-index:20;margin:-12px -12px 12px;padding:10px 14px;background:#eaf3ff;color:#0f4f8f;border-bottom:1px solid #c6def8;font-size:13px}
         .top-status.error{background:#fff1f0;color:var(--danger);border-bottom-color:#ffd4cf}
         .top-status.success{background:#eaf7ef;color:var(--ok);border-bottom-color:#bfe6cc}
-        .toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
+        .toolbar{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:12px}
         h1{font-size:22px;line-height:1.25;margin:0}
-        .tabs{display:flex;gap:6px;flex-wrap:wrap}
-        .tab{border:1px solid var(--line);background:#fff;color:#20304a;border-radius:8px;padding:9px 12px;font-weight:700;cursor:pointer}
+        h2{line-height:1.25}
+        .tabs{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+        .tab{border:1px solid var(--line);background:#fff;color:#20304a;border-radius:8px;padding:9px 12px;font-weight:700;cursor:pointer;min-height:38px}
         .tab.active{border-color:var(--accent);background:var(--accent);color:#fff}
-        .panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px;box-shadow:0 2px 8px rgba(15,23,42,.035)}
+        .panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px;box-shadow:0 2px 8px rgba(15,23,42,.035)}
         .view{display:none}.view.active{display:block}
         .grid{display:grid;grid-template-columns:repeat(12,1fr);gap:10px}
         .col-2{grid-column:span 2}.col-3{grid-column:span 3}.col-4{grid-column:span 4}.col-6{grid-column:span 6}.col-8{grid-column:span 8}.col-12{grid-column:span 12}
         label{display:block;font-weight:700;font-size:13px;margin-bottom:5px}
-        input,select,textarea{width:100%;box-sizing:border-box;border:1px solid #cbd5e1;border-radius:7px;background:#fff;color:var(--text);font-size:15px;padding:9px}
+        input,select,textarea{width:100%;box-sizing:border-box;border:1px solid #cbd5e1;border-radius:7px;background:#fff;color:var(--text);font-size:15px;padding:9px;min-height:40px}
+        input:focus,select:focus,textarea:focus,button:focus{outline:2px solid rgba(23,105,224,.22);outline-offset:1px;border-color:var(--accent)}
         textarea{min-height:86px;resize:vertical}
-        button{border:0;border-radius:8px;background:var(--accent);color:#fff;font-weight:700;font-size:14px;padding:10px 13px;cursor:pointer}
+        button{border:0;border-radius:8px;background:var(--accent);color:#fff;font-weight:700;font-size:14px;padding:10px 13px;min-height:38px;cursor:pointer;white-space:nowrap}
         button:hover{background:var(--accent-dark)}
         button.secondary{background:#475569}button.secondary:hover{background:#334155}
         button.danger{background:var(--danger)}button.danger:hover{background:#861d13}
@@ -86,54 +88,75 @@ prLog('index', [
         .notice.success{border-color:#bfe6cc;background:#eaf7ef;color:var(--ok)}
         .table-wrap{overflow:auto;border:1px solid var(--line);border-radius:8px;background:#fff}
         table{width:100%;border-collapse:collapse;min-width:920px}
-        th,td{padding:9px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;font-size:14px}
-        th{background:#f8fafc;color:#475569;font-weight:800}
+        th,td{padding:9px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;font-size:14px}
+        th{background:var(--soft);color:#475569;font-weight:800;white-space:nowrap}
+        td{overflow-wrap:anywhere}
         tr:last-child td{border-bottom:0}
         .muted{color:var(--muted);font-size:13px}
-        .badge{display:inline-flex;align-items:center;border-radius:999px;background:#eef2f7;color:#334155;padding:4px 8px;font-size:12px;font-weight:800}
-        .badge.open{background:#fff7ed;color:#9a3412}.badge.done{background:#ecfdf3;color:#166534}
+        .entity-title{display:block;font-weight:800;color:var(--text)}
+        .entity-subtitle{display:block;color:var(--muted);font-size:13px;margin-top:2px}
+        .amount{font-weight:800;white-space:nowrap}
+        .badge{display:inline-flex;align-items:center;border-radius:999px;background:#eef2f7;color:#334155;padding:4px 8px;font-size:12px;font-weight:800;line-height:1.2;white-space:nowrap}
+        .badge.open,.badge.approval,.badge.warehouse,.badge.supply,.badge.execution,.badge.acceptance{background:#fff7ed;color:#9a3412}
+        .badge.done,.badge.approved,.badge.registered{background:#ecfdf3;color:#166534}
+        .badge.rejected,.badge.cancelled{background:#fff1f0;color:var(--danger)}
+        .badge.revision{background:#fff8db;color:#8a5a00}
         .subhead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:2px 0 10px}
         .subhead h2{font-size:18px;margin:0}
-        .item-editor{margin-top:12px}
-        .item-row{display:grid;grid-template-columns:130px minmax(190px,1.5fr) minmax(160px,1fr) 110px 110px 170px minmax(220px,1.4fr) 44px;gap:8px;align-items:start;margin-bottom:10px;border:1px solid var(--line);border-radius:8px;padding:10px;background:#fff}
+        .form-band{border:1px solid var(--line);border-radius:8px;background:var(--soft);padding:12px;margin:12px 0}
+        .form-band>.subhead{margin-top:0}
+        .item-editor{margin-top:12px;border:1px solid var(--line);border-radius:8px;background:var(--soft);padding:12px}
+        .item-editor .subhead{margin-top:0}
+        .item-row{display:grid;grid-template-columns:130px minmax(210px,1.5fr) minmax(180px,1fr) 110px 110px 170px minmax(230px,1.4fr) 44px;gap:8px;align-items:start;margin-bottom:10px;border:1px solid var(--line);border-radius:8px;padding:10px;background:#fff}
         .field label{font-size:12px;margin-bottom:4px;color:#475569}
         .field-hint{margin-top:3px;color:var(--muted);font-size:12px;line-height:1.3}
         .attachments{margin-top:14px;border:1px solid var(--line);border-radius:8px;padding:12px;background:#f8fafc}
         .file-list{margin:8px 0 0;padding:0;list-style:none;display:grid;gap:6px}
-        .file-list li{display:flex;align-items:center;justify-content:space-between;gap:8px;border:1px solid var(--line);border-radius:7px;background:#fff;padding:7px 9px;font-size:14px}
+        .file-list li{display:flex;align-items:center;justify-content:space-between;gap:8px;border:1px solid var(--line);border-radius:7px;background:#fff;padding:7px 9px;font-size:14px;min-width:0}
+        .file-list li span,.file-list li a{min-width:0;overflow-wrap:anywhere}
         .file-list a{color:var(--accent);text-decoration:none}
         .route-preview{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;margin-top:10px}
-        .route-step{border:1px solid var(--line);border-radius:8px;padding:9px;background:#f8fafc}
+        .route-step{border:1px solid var(--line);border-radius:8px;padding:9px;background:#fff}
+        .route-step-head{display:flex;align-items:flex-start;gap:8px;margin-bottom:6px}
+        .route-step-no{display:inline-flex;align-items:center;justify-content:center;flex:0 0 24px;width:24px;height:24px;border-radius:999px;background:#eef5ff;color:#1554b0;font-size:12px;font-weight:900}
+        .route-step-title{font-weight:800;line-height:1.25}
+        .route-step-users{margin-top:6px;color:var(--muted);font-size:13px;line-height:1.35}
         .timeline{display:grid;gap:8px;margin-top:12px}
         .timeline-item{display:grid;grid-template-columns:110px 1fr;gap:10px;border-left:3px solid var(--line);padding:8px 10px;background:#fff;border-radius:7px}
         .timeline-item.done{border-left-color:var(--ok)}.timeline-item.open{border-left-color:var(--accent)}
-        .task-items{margin:10px 0;border:1px solid var(--line);border-radius:8px;background:#f8fafc;padding:8px}
+        .task-items{margin:10px 0;border:1px solid var(--line);border-radius:8px;background:var(--soft);padding:10px}
+        .task-items>b,.check-list>b{display:block;margin-bottom:6px}
         .task-items ul{margin:6px 0 0;padding-left:18px}
         .task-table-wrap{overflow:auto;margin-top:8px}
         .task-table{min-width:980px;background:#fff}
         .task-table input,.task-table select{font-size:14px;padding:7px}
         .task-table .small-input{min-width:90px}
-        .check-list{display:grid;gap:7px;margin:10px 0;border:1px solid var(--line);border-radius:8px;background:#f8fafc;padding:9px}
-        .check-row{display:flex;align-items:center;gap:8px;margin:0;font-size:14px;font-weight:600}
+        .check-list{display:grid;gap:8px;margin:10px 0;border:1px solid var(--line);border-radius:8px;background:#f8fafc;padding:10px}
+        .check-row{display:flex;align-items:flex-start;gap:8px;margin:0;font-size:14px;font-weight:600;line-height:1.35}
         .check-row input{width:auto}
         .user-search-results{display:grid;gap:6px;margin-top:6px}
         .user-search-results button{display:block;width:100%;text-align:left;background:#fff;color:var(--text);border:1px solid var(--line);font-weight:600}
         .task-list{display:grid;gap:10px}
-        .task{border:1px solid var(--line);border-radius:8px;padding:12px;background:#fff}
-        .task-head{display:flex;justify-content:space-between;gap:10px;margin-bottom:8px}
+        .task{border:1px solid var(--line);border-radius:8px;padding:12px;background:#fff;box-shadow:0 1px 4px rgba(15,23,42,.035)}
+        .task-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:8px}
+        .task-meta{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+        .task-meta span{border:1px solid var(--line);border-radius:999px;background:#fff;color:#475569;padding:3px 8px;font-size:12px;font-weight:700}
+        .task-comment{margin-top:10px}
+        .task-actions{border-top:1px solid var(--line);padding-top:10px;margin-top:10px}
         .admin-layout{display:grid;grid-template-columns:minmax(380px,540px) minmax(0,1fr);gap:12px}
         .admin-box{border:1px solid var(--line);border-radius:8px;padding:12px;background:#fff}
         .admin-box h2+label,.admin-box h2+.grid{margin-top:4px}
         .admin-box h2:not(:first-child){margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}
+        .admin-box h2{font-size:16px;margin:0 0 10px}
         .stack{display:grid;gap:10px}
         .json-area{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;min-height:220px}
         @media(max-width:860px){
             .shell{padding:0}.top-status{margin:0}.toolbar{display:block;padding:12px 12px 0}.tabs{margin-top:10px}.panel{border-left:0;border-right:0;border-radius:0;box-shadow:none;padding:12px}
             .grid{display:block}.grid>div{margin-bottom:10px}.admin-layout{display:block}.admin-layout>div{margin-bottom:12px}
-            .item-row{grid-template-columns:1fr;gap:8px;border:1px solid var(--line);border-radius:8px;padding:9px;background:#f8fafc}.item-row .wide{grid-column:auto}.item-row button{width:44px}
+            .item-row{grid-template-columns:1fr;gap:8px;border:1px solid var(--line);border-radius:8px;padding:9px;background:#fff}.item-row .wide{grid-column:auto}.item-row button{width:44px}
             .table-wrap{border:0;overflow:visible}table,tbody,tr,td{display:block;width:100%;box-sizing:border-box}table{min-width:0}thead{display:none}
             tr{border:1px solid var(--line);border-radius:8px;margin-bottom:10px;background:#fff}td{border-bottom:0;padding:7px 9px}td::before{content:attr(data-label);display:block;color:var(--muted);font-size:12px;font-weight:800;margin-bottom:2px}
-            .task-head{display:block}.actions button{flex:1 1 auto}
+            .task-head{display:block}.actions button{flex:1 1 auto}.task-meta{margin-bottom:8px}.subhead{align-items:flex-start}.file-list li{align-items:flex-start}
         }
     </style>
 </head>
@@ -200,6 +223,7 @@ prLog('index', [
             </div>
             <form id="requestForm">
                 <input type="hidden" id="requestId">
+                <div class="form-band">
                 <div class="grid">
                     <div class="col-4"><label for="companyKey">Компания *</label><select id="companyKey" required></select></div>
                     <div class="col-4"><label for="siteKey">Площадка *</label><select id="siteKey" required></select></div>
@@ -211,6 +235,7 @@ prLog('index', [
                     <div class="col-4"><label for="requiredDate">Желаемый срок</label><input id="requiredDate" type="date"></div>
                     <div class="col-6"><label for="justification">Обоснование *</label><textarea id="justification" required></textarea></div>
                     <div class="col-6"><label for="commentText">Примечание</label><textarea id="commentText"></textarea></div>
+                </div>
                 </div>
 
                 <div class="item-editor">
@@ -300,6 +325,38 @@ function inputDateValue(value) {
         if (nested) return inputDateValue(nested);
     }
     return String(value).slice(0, 10);
+}
+
+function statusBadgeClass(status = '') {
+    const normalized = String(status || '').toLowerCase();
+    const map = {
+        draft: '',
+        approval: 'approval',
+        warehouse: 'warehouse',
+        approved: 'approved',
+        registration: 'approval',
+        registered: 'registered',
+        supply: 'supply',
+        execution: 'execution',
+        acceptance: 'acceptance',
+        in_progress: 'execution',
+        rejected: 'rejected',
+        revision: 'revision',
+        cancelled: 'cancelled',
+        done: 'done'
+    };
+    return map[normalized] || '';
+}
+
+function statusBadgeHtml(status = '') {
+    const label = (dict.statuses || {})[status] || status || 'Статус не указан';
+    const cls = statusBadgeClass(status);
+    return `<span class="badge ${escapeHtml(cls)}">${escapeHtml(label)}</span>`;
+}
+
+function formatMoney(value, currency = 'RUB') {
+    const number = Number(value || 0);
+    return `${number.toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2})} ${currency || ''}`.trim();
 }
 
 function setStatus(text, type = '') {
@@ -669,14 +726,18 @@ function syncItemsFromDom() {
 function renderRoute(route) {
     document.getElementById('routePreview').innerHTML = (route || []).map((step, index) => `
         <div class="route-step">
-            <div class="badge">${index + 1}</div>
-            <b>${escapeHtml(step.title || step.code || '')}</b>
-            <div class="muted">${escapeHtml((dict.roles || {})[step.role] || step.role || '')}</div>
-            ${(step.assignees || []).length ? `<div class="muted">${(step.assignees || []).map(user => {
+            <div class="route-step-head">
+                <span class="route-step-no">${index + 1}</span>
+                <div>
+                    <div class="route-step-title">${escapeHtml(step.title || step.code || '')}</div>
+                    <div class="muted">${escapeHtml((dict.roles || {})[step.role] || step.role || '')}</div>
+                </div>
+            </div>
+            ${(step.assignees || []).length ? `<div class="route-step-users">${(step.assignees || []).map(user => {
                 const primary = escapeHtml([user.name, user.position].filter(Boolean).join(' · '));
                 const substitute = user.substitute && user.substitute.id ? `<br>Замещающий при отсутствии: ${escapeHtml([user.substitute.name, user.substitute.position].filter(Boolean).join(' · '))}` : '';
                 return primary + substitute;
-            }).join('<br>')}</div>` : '<div class="muted">Согласующий не назначен</div>'}
+            }).join('<br>')}</div>` : '<div class="route-step-users">Согласующий не назначен</div>'}
         </div>
     `).join('');
 }
@@ -753,12 +814,12 @@ async function loadRequests() {
     </tr></thead><tbody>${data.rows.map(row => `
         <tr>
             <td data-label="ID">#${escapeHtml(row.ID)}</td>
-            <td data-label="Статус"><span class="badge">${escapeHtml(dict.statuses[row.STATUS] || row.STATUS)}</span></td>
+            <td data-label="Статус">${statusBadgeHtml(row.STATUS)}</td>
             <td data-label="Компания">${escapeHtml(row.COMPANY_NAME || '')}</td>
             <td data-label="Тип">${escapeHtml((dict.request_types || {})[row.REQUEST_TYPE] || row.REQUEST_TYPE || '')}</td>
             <td data-label="Инициатор">${escapeHtml(row.INITIATOR_NAME || '')}</td>
             <td data-label="Площадка">${escapeHtml(row.SITE_NAME || '')}</td>
-            <td data-label="Сумма">${escapeHtml(row.TOTAL_AMOUNT || '0')} ${escapeHtml(row.CURRENCY || '')}</td>
+            <td data-label="Сумма"><span class="amount">${escapeHtml(formatMoney(row.TOTAL_AMOUNT, row.CURRENCY))}</span></td>
             <td data-label="Рег. номер">${escapeHtml(row.REG_NUMBER || '')}</td>
             <td data-label=""><button type="button" class="light" data-open-request="${escapeHtml(row.ID)}">Открыть</button></td>
         </tr>`).join('')}</tbody></table></div>`;
@@ -799,13 +860,13 @@ async function loadAllRequests() {
         <tr>
             <td data-label="ID">#${escapeHtml(row.ID)}</td>
             <td data-label="Создана">${escapeHtml(String(row.CREATED_AT || '').slice(0, 16))}</td>
-            <td data-label="Статус"><span class="badge">${escapeHtml(dict.statuses[row.STATUS] || row.STATUS)}</span></td>
+            <td data-label="Статус">${statusBadgeHtml(row.STATUS)}</td>
             <td data-label="Компания">${escapeHtml(row.COMPANY_NAME || '')}</td>
             <td data-label="Тип">${escapeHtml((dict.request_types || {})[row.REQUEST_TYPE] || row.REQUEST_TYPE || '')}</td>
             <td data-label="Инициатор">${escapeHtml(row.INITIATOR_NAME || '')}</td>
             <td data-label="Подразделение">${escapeHtml(row.DEPARTMENT_NAME || '')}</td>
             <td data-label="Площадка">${escapeHtml(row.SITE_NAME || '')}</td>
-            <td data-label="Сумма">${escapeHtml(row.TOTAL_AMOUNT || '0')} ${escapeHtml(row.CURRENCY || '')}</td>
+            <td data-label="Сумма"><span class="amount">${escapeHtml(formatMoney(row.TOTAL_AMOUNT, row.CURRENCY))}</span></td>
             <td data-label="Рег. номер">${escapeHtml(row.REG_NUMBER || '')}</td>
             <td data-label=""><button type="button" class="light" data-open-request="${escapeHtml(row.ID)}">Открыть</button></td>
         </tr>`).join('')}</tbody></table></div>`;
@@ -892,8 +953,8 @@ function taskItemsHtml(task) {
             <td data-label="Место установки">${escapeHtml(item.EQUIPMENT_TEXT || '')}</td>
             <td data-label="Вид">${escapeHtml((dict.item_categories || {})[item.CATEGORY] || item.CATEGORY || '')}</td>
             <td data-label="Кол-во">${escapeHtml(qty || '')} ${escapeHtml((dict.units || {})[item.UNIT] || item.UNIT || '')}</td>
-            <td data-label="Предп. цена">${price ? escapeHtml(price.toFixed(2)) + ' руб.' : ''}</td>
-            <td data-label="Сумма">${amount ? escapeHtml(amount.toFixed(2)) + ' руб.' : ''}</td>
+            <td data-label="Предп. цена">${price ? escapeHtml(formatMoney(price, task.CURRENCY || 'RUB')) : ''}</td>
+            <td data-label="Сумма">${amount ? `<span class="amount">${escapeHtml(formatMoney(amount, task.CURRENCY || 'RUB'))}</span>` : ''}</td>
             <td data-label="Комментарий">${escapeHtml(item.JUSTIFICATION || '')}</td>
             ${isWarehouse ? `<td data-label="Наличие"><select data-warehouse-field="status">${warehouseStatusOptions(item.WAREHOUSE_STATUS || '')}</select></td>
                 <td data-label="Кол-во на складе"><input class="small-input" data-warehouse-field="qty" type="number" min="0" step="0.0001" value="${escapeHtml(item.WAREHOUSE_QTY || '')}"></td>
@@ -926,6 +987,16 @@ function taskChecklistHtml(task) {
     </div>`;
 }
 
+function taskApproveLabel(task) {
+    const stepCode = task.STEP_CODE || '';
+    const roleCode = task.ROLE_CODE || '';
+    const checklist = task.CHECKLIST_LABELS || {};
+    if (stepCode === 'initiator_acceptance' || (task.REQUEST_STATUS || '') === 'ACCEPTANCE') return 'Принять выполнение';
+    if (Object.keys(checklist).length) return 'Завершить этап';
+    if (roleCode === 'warehouse') return 'Проверка выполнена';
+    return 'Согласовать';
+}
+
 async function loadTasks() {
     const box = document.getElementById('tasksContent');
     box.className = 'notice';
@@ -941,9 +1012,13 @@ async function loadTasks() {
         <div class="task" data-task="${escapeHtml(task.ID)}" data-role="${escapeHtml(task.ROLE_CODE)}">
             <div class="task-head">
                 <div>
-                    <b>Заявка #${escapeHtml(task.REQUEST_ID)}: ${escapeHtml(task.STEP_TITLE)}</b>
-                    <div class="muted">${escapeHtml(task.SITE_NAME || '')} · ${escapeHtml(task.DEPARTMENT_NAME || '')} · ${escapeHtml(task.TOTAL_AMOUNT || '0')} ${escapeHtml(task.CURRENCY || '')}</div>
-                    <div class="muted">Инициатор: ${escapeHtml([task.INITIATOR_NAME || '', task.INITIATOR_POSITION || ''].filter(Boolean).join(' · '))}</div>
+                    <span class="entity-title">Заявка #${escapeHtml(task.REQUEST_ID)}: ${escapeHtml(task.STEP_TITLE)}</span>
+                    <span class="entity-subtitle">Инициатор: ${escapeHtml([task.INITIATOR_NAME || '', task.INITIATOR_POSITION || ''].filter(Boolean).join(' · ') || 'не указан')}</span>
+                    <div class="task-meta">
+                        <span>${escapeHtml(task.SITE_NAME || 'Площадка не указана')}</span>
+                        <span>${escapeHtml(task.DEPARTMENT_NAME || 'Подразделение не указано')}</span>
+                        <span>${escapeHtml(formatMoney(task.TOTAL_AMOUNT, task.CURRENCY))}</span>
+                    </div>
                 </div>
                 <span class="badge open">${escapeHtml((dict.roles || {})[task.ROLE_CODE] || task.ROLE_CODE)}</span>
             </div>
@@ -951,10 +1026,10 @@ async function loadTasks() {
             ${taskItemsHtml(task)}
             ${(task.ATTACHMENTS || []).length ? `<div class="task-items"><b>Файлы заявки</b>${attachmentListHtml(task.ATTACHMENTS || [])}</div>` : ''}
             ${taskChecklistHtml(task)}
-            <label>Комментарий</label>
+            <label class="task-comment">Комментарий</label>
             <textarea data-task-field="comment"></textarea>
-            <div class="actions">
-                <button type="button" data-decision="approve">Согласовать</button>
+            <div class="actions task-actions">
+                <button type="button" data-decision="approve">${escapeHtml(taskApproveLabel(task))}</button>
                 <button type="button" class="secondary" data-decision="revision">Вернуть</button>
                 <button type="button" class="danger" data-decision="reject">Отклонить</button>
                 <button type="button" class="light" data-open-request="${escapeHtml(task.REQUEST_ID)}">Открыть заявку</button>
