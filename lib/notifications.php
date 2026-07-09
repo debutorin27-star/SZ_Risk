@@ -46,7 +46,10 @@ function prNotifyActiveItems(array $request): array
 function prNotifyBuildPayload(array $request, array $step, int $taskId = 0): array
 {
     $requestId = (int)($request['ID'] ?? 0);
-    $link = prAbsoluteUrl('index.php', ['request_id' => $requestId]);
+    $requestLink = prAbsoluteUrl('index.php', ['request_id' => $requestId]);
+    $approvalLink = $taskId > 0
+        ? prAbsoluteUrl('index.php', ['view' => 'tasks', 'task_id' => $taskId, 'request_id' => $requestId])
+        : $requestLink;
     $stepTitle = (string)($step['title'] ?? $step['code'] ?? 'Принять решение');
     $roleCode = (string)($step['role'] ?? '');
     $roleTitle = prRoleLabels()[$roleCode] ?? $roleCode;
@@ -68,7 +71,8 @@ function prNotifyBuildPayload(array $request, array $step, int $taskId = 0): arr
         'Состав закупки:',
         prNotifyCompactItems($items, 5, $currency),
         '',
-        'Открыть заявку: ' . $link,
+        'Перейти к согласованию: ' . $approvalLink,
+        'Карточка заявки: ' . $requestLink,
     ];
 
     $plain = implode("\n", $lines);
@@ -81,7 +85,8 @@ function prNotifyBuildPayload(array $request, array $step, int $taskId = 0): arr
         '[B]Сумма:[/B] ' . prNotifyMoney($request['TOTAL_AMOUNT'] ?? 0, $currency) . "\n\n" .
         '[B]Состав закупки:[/B]' . "\n" .
         prNotifyCompactItems($items, 5, $currency) . "\n\n" .
-        '[URL=' . $link . ']Открыть заявку[/URL]';
+        '[URL=' . $approvalLink . ']Перейти к согласованию[/URL]' . "\n" .
+        '[URL=' . $requestLink . ']Открыть карточку заявки[/URL]';
 
     return [
         'request_id' => $requestId,
@@ -89,7 +94,8 @@ function prNotifyBuildPayload(array $request, array $step, int $taskId = 0): arr
         'title' => $title,
         'plain' => $plain,
         'bbcode' => $html,
-        'link' => $link,
+        'link' => $approvalLink,
+        'request_link' => $requestLink,
         'tag' => 'purchase_request_task_' . ($taskId > 0 ? $taskId : $requestId),
         'sub_tag' => 'PURCHASE_REQUEST|' . $requestId . '|TASK|' . $taskId . '|APP|' . PR_NOTIFY_MARKETPLACE_APP_ID,
     ];

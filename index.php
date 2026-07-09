@@ -57,8 +57,9 @@ prLog('index', [
     <script src="//api.bitrix24.com/api/v1/"></script>
     <style>
         :root{--bg:#f4f6f8;--panel:#fff;--line:#d9e0e8;--line-strong:#c6d0dc;--text:#152033;--muted:#64748b;--soft:#f8fafc;--accent:#1769e0;--accent-dark:#0f4fb0;--danger:#b42318;--ok:#157347;--warn:#9a6700}
+        *{box-sizing:border-box}
         html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;line-height:1.35;overflow-x:hidden}
-        .shell{max-width:none;margin:0 auto;padding:12px}
+        .shell{max-width:none;margin:0 auto;padding:12px;min-width:0}
         .top-status{position:sticky;top:0;z-index:20;margin:-12px -12px 12px;padding:10px 14px;background:#eaf3ff;color:#0f4f8f;border-bottom:1px solid #c6def8;font-size:13px}
         .top-status.error{background:#fff1f0;color:var(--danger);border-bottom-color:#ffd4cf}
         .top-status.success{background:#eaf7ef;color:var(--ok);border-bottom-color:#bfe6cc}
@@ -68,11 +69,12 @@ prLog('index', [
         .tabs{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
         .tab{border:1px solid var(--line);background:#fff;color:#20304a;border-radius:8px;padding:9px 12px;font-weight:700;cursor:pointer;min-height:38px}
         .tab.active{border-color:var(--accent);background:var(--accent);color:#fff}
-        .panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px;box-shadow:0 2px 8px rgba(15,23,42,.035)}
-        .view{display:none}.view.active{display:block}
-        .grid{display:grid;grid-template-columns:repeat(12,1fr);gap:10px}
+        .panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px;box-shadow:0 2px 8px rgba(15,23,42,.035);min-width:0;max-width:100%}
+        .view{display:none;min-width:0}.view.active{display:block}
+        .grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:10px}
         .col-2{grid-column:span 2}.col-3{grid-column:span 3}.col-4{grid-column:span 4}.col-6{grid-column:span 6}.col-8{grid-column:span 8}.col-12{grid-column:span 12}
-        label{display:block;font-weight:700;font-size:13px;margin-bottom:5px}
+        .grid>*,.col-2,.col-3,.col-4,.col-6,.col-8,.col-12{min-width:0}
+        label{display:block;font-weight:700;font-size:13px;margin-bottom:5px;overflow-wrap:anywhere}
         input,select,textarea{width:100%;box-sizing:border-box;border:1px solid #cbd5e1;border-radius:7px;background:#fff;color:var(--text);font-size:15px;padding:9px;min-height:40px}
         input:focus,select:focus,textarea:focus,button:focus{outline:2px solid rgba(23,105,224,.22);outline-offset:1px;border-color:var(--accent)}
         textarea{min-height:86px;resize:vertical}
@@ -81,12 +83,14 @@ prLog('index', [
         button.secondary{background:#475569}button.secondary:hover{background:#334155}
         button.danger{background:var(--danger)}button.danger:hover{background:#861d13}
         button.light{border:1px solid var(--line);background:#fff;color:#20304a}button.light:hover{background:#f8fafc}
+        .button-link{display:inline-flex;align-items:center;justify-content:center;border-radius:8px;background:#fff;color:#20304a;border:1px solid var(--line);font-weight:700;font-size:14px;padding:10px 13px;min-height:38px;text-decoration:none;white-space:nowrap}
+        .button-link:hover{background:#f8fafc}
         button[disabled]{opacity:.55;cursor:not-allowed}
         .actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px}
         .notice{border:1px solid #c6def8;background:#eaf3ff;color:#0f4f8f;border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:14px}
         .notice.error{border-color:#ffd4cf;background:#fff1f0;color:var(--danger)}
         .notice.success{border-color:#bfe6cc;background:#eaf7ef;color:var(--ok)}
-        .table-wrap{overflow:auto;border:1px solid var(--line);border-radius:8px;background:#fff}
+        .table-wrap{overflow:auto;border:1px solid var(--line);border-radius:8px;background:#fff;max-width:100%}
         table{width:100%;border-collapse:collapse;min-width:920px}
         th,td{padding:9px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;font-size:14px}
         th{background:var(--soft);color:#475569;font-weight:800;white-space:nowrap}
@@ -102,15 +106,18 @@ prLog('index', [
         .badge.rejected,.badge.cancelled{background:#fff1f0;color:var(--danger)}
         .badge.revision{background:#fff8db;color:#8a5a00}
         .subhead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:2px 0 10px}
+        .subhead>*{min-width:0}
+        .subhead button{flex:0 0 auto}
         .subhead h2{font-size:18px;margin:0}
-        .form-band{border:1px solid var(--line);border-radius:8px;background:var(--soft);padding:12px;margin:12px 0}
+        .form-band{border:1px solid var(--line);border-radius:8px;background:var(--soft);padding:12px;margin:12px 0;min-width:0;max-width:100%}
         .form-band>.subhead{margin-top:0}
-        .item-editor{margin-top:12px;border:1px solid var(--line);border-radius:8px;background:var(--soft);padding:12px}
+        .item-editor{margin-top:12px;border:1px solid var(--line);border-radius:8px;background:var(--soft);padding:12px;min-width:0;max-width:100%}
         .item-editor .subhead{margin-top:0}
-        .item-row{display:grid;grid-template-columns:130px minmax(210px,1.5fr) minmax(180px,1fr) 110px 110px 170px minmax(230px,1.4fr) 44px;gap:8px;align-items:start;margin-bottom:10px;border:1px solid var(--line);border-radius:8px;padding:10px;background:#fff}
+        .item-row{display:grid;grid-template-columns:130px minmax(210px,1.5fr) minmax(180px,1fr) 110px 110px 170px minmax(230px,1.4fr) 44px;gap:8px;align-items:start;margin-bottom:10px;border:1px solid var(--line);border-radius:8px;padding:10px;background:#fff;min-width:0;max-width:100%}
+        .item-row>*{min-width:0}
         .field label{font-size:12px;margin-bottom:4px;color:#475569}
         .field-hint{margin-top:3px;color:var(--muted);font-size:12px;line-height:1.3}
-        .attachments{margin-top:14px;border:1px solid var(--line);border-radius:8px;padding:12px;background:#f8fafc}
+        .attachments{margin-top:14px;border:1px solid var(--line);border-radius:8px;padding:12px;background:#f8fafc;min-width:0;max-width:100%}
         .file-list{margin:8px 0 0;padding:0;list-style:none;display:grid;gap:6px}
         .file-list li{display:flex;align-items:center;justify-content:space-between;gap:8px;border:1px solid var(--line);border-radius:7px;background:#fff;padding:7px 9px;font-size:14px;min-width:0}
         .file-list li span,.file-list li a{min-width:0;overflow-wrap:anywhere}
@@ -124,32 +131,43 @@ prLog('index', [
         .timeline{display:grid;gap:8px;margin-top:12px}
         .timeline-item{display:grid;grid-template-columns:110px 1fr;gap:10px;border-left:3px solid var(--line);padding:8px 10px;background:#fff;border-radius:7px}
         .timeline-item.done{border-left-color:var(--ok)}.timeline-item.open{border-left-color:var(--accent)}
-        .task-items{margin:10px 0;border:1px solid var(--line);border-radius:8px;background:var(--soft);padding:10px}
+        .task-items{margin:10px 0;border:1px solid var(--line);border-radius:8px;background:var(--soft);padding:10px;min-width:0;max-width:100%}
         .task-items>b,.check-list>b{display:block;margin-bottom:6px}
         .task-items ul{margin:6px 0 0;padding-left:18px}
-        .task-table-wrap{overflow:auto;margin-top:8px}
+        .task-table-wrap{overflow:auto;margin-top:8px;max-width:100%}
         .task-table{min-width:980px;background:#fff}
         .task-table input,.task-table select{font-size:14px;padding:7px}
         .task-table .small-input{min-width:90px}
-        .check-list{display:grid;gap:8px;margin:10px 0;border:1px solid var(--line);border-radius:8px;background:#f8fafc;padding:10px}
+        .check-list{display:grid;gap:8px;margin:10px 0;border:1px solid var(--line);border-radius:8px;background:#f8fafc;padding:10px;min-width:0}
         .check-row{display:flex;align-items:flex-start;gap:8px;margin:0;font-size:14px;font-weight:600;line-height:1.35}
         .check-row input{width:auto}
         .user-search-results{display:grid;gap:6px;margin-top:6px}
         .user-search-results button{display:block;width:100%;text-align:left;background:#fff;color:var(--text);border:1px solid var(--line);font-weight:600}
+        .task-filter{border:1px solid var(--line);border-radius:8px;background:var(--soft);padding:12px;margin-bottom:12px;min-width:0;max-width:100%}
+        .task-filter .actions{margin-top:0}
+        .task-filter-summary{margin-top:8px}
         .task-list{display:grid;gap:10px}
-        .task{border:1px solid var(--line);border-radius:8px;padding:12px;background:#fff;box-shadow:0 1px 4px rgba(15,23,42,.035)}
+        .task{border:1px solid var(--line);border-radius:8px;padding:12px;background:#fff;box-shadow:0 1px 4px rgba(15,23,42,.035);min-width:0;max-width:100%}
+        .task.target{border-color:var(--accent);box-shadow:0 0 0 3px rgba(23,105,224,.16),0 1px 4px rgba(15,23,42,.035)}
         .task-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:8px}
         .task-meta{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
         .task-meta span{border:1px solid var(--line);border-radius:999px;background:#fff;color:#475569;padding:3px 8px;font-size:12px;font-weight:700}
         .task-comment{margin-top:10px}
         .task-actions{border-top:1px solid var(--line);padding-top:10px;margin-top:10px}
         .admin-layout{display:grid;grid-template-columns:minmax(380px,540px) minmax(0,1fr);gap:12px}
-        .admin-box{border:1px solid var(--line);border-radius:8px;padding:12px;background:#fff}
+        .admin-box{border:1px solid var(--line);border-radius:8px;padding:12px;background:#fff;min-width:0;max-width:100%}
         .admin-box h2+label,.admin-box h2+.grid{margin-top:4px}
         .admin-box h2:not(:first-child){margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}
         .admin-box h2{font-size:16px;margin:0 0 10px}
         .stack{display:grid;gap:10px}
         .json-area{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;min-height:220px}
+        @media(max-width:1180px) and (min-width:861px){
+            .item-row{grid-template-columns:repeat(12,minmax(0,1fr))}
+            .item-row .field{grid-column:span 3}
+            .item-row .field.wide{grid-column:span 6}
+            .item-row button{grid-column:span 1;justify-self:end;width:44px}
+            .admin-layout{grid-template-columns:minmax(320px,460px) minmax(0,1fr)}
+        }
         @media(max-width:860px){
             .shell{padding:0}.top-status{margin:0}.toolbar{display:block;padding:12px 12px 0}.tabs{margin-top:10px}.panel{border-left:0;border-right:0;border-radius:0;box-shadow:none;padding:12px}
             .grid{display:block}.grid>div{margin-bottom:10px}.admin-layout{display:block}.admin-layout>div{margin-bottom:12px}
@@ -190,6 +208,14 @@ prLog('index', [
                 <h2>Задания</h2>
                 <button type="button" class="light" id="refreshTasks">Обновить</button>
             </div>
+            <form id="tasksFilter" class="task-filter">
+                <div class="grid">
+                    <div class="col-6"><label for="tasksQ">Поиск по согласованиям</label><input id="tasksQ" type="search" placeholder="ID, инициатор, площадка, отдел, этап или позиция"></div>
+                    <div class="col-3"><label for="tasksRole">Роль</label><select id="tasksRole"></select></div>
+                    <div class="col-3"><label>&nbsp;</label><button type="button" class="light" id="clearTasksFilter">Сброс</button></div>
+                </div>
+                <div id="tasksFilterSummary" class="muted task-filter-summary"></div>
+            </form>
             <div id="tasksContent" class="notice">Загружаем...</div>
         </section>
 
@@ -281,11 +307,16 @@ prLog('index', [
 const PR_APP_DIR = <?= json_encode(prAppDir(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
 const PR_AUTH_CONTEXT = <?= json_encode($appAuthContext, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
 const PR_AUTH_PAYLOAD = <?= json_encode($appAuthPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
-const initialRequestId = new URLSearchParams(location.search).get('request_id') || '';
+const initialParams = new URLSearchParams(location.search);
+const initialRequestId = initialParams.get('request_id') || '';
+const initialTaskId = initialParams.get('task_id') || '';
+const initialView = initialParams.get('view') || '';
 
 let dict = {companies:{}, sites:{}, sites_by_company:{}, initiator_profiles:{}, initiator_departments:[], request_types:{}, item_categories:{}, units:{}, roles:{}, statuses:{}, supply_checklist:{}};
 let currentItems = [];
 let selectedFiles = [];
+let tasksCache = [];
+let pendingTaskFocusId = initialTaskId;
 let adminCache = null;
 let apiMode = 'proxy';
 let runtimeAuthPayload = {...(PR_AUTH_PAYLOAD || {})};
@@ -546,8 +577,15 @@ function fillDictionaries() {
     renderDepartmentOptions(currentUser.department || '');
     renderInitiatorProfiles();
     renderAllRequestFilters();
+    renderTaskFilters();
     if (currentUser.position) document.getElementById('positionName').value = currentUser.position;
     if (!currentItems.length) addItemRow();
+}
+
+function renderTaskFilters() {
+    const role = document.getElementById('tasksRole');
+    if (!role) return;
+    role.innerHTML = optionsWithEmpty(dict.roles || {}, 'Все роли');
 }
 
 function renderAllRequestFilters() {
@@ -997,18 +1035,100 @@ function taskApproveLabel(task) {
     return 'Согласовать';
 }
 
-async function loadTasks() {
+function taskApprovalUrl(task) {
+    const url = new URL(location.href);
+    url.searchParams.set('view', 'tasks');
+    url.searchParams.set('task_id', task.ID || '');
+    url.searchParams.set('request_id', task.REQUEST_ID || '');
+    return url.toString();
+}
+
+function normalizeSearchText(value) {
+    return String(value ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+function taskSearchText(task) {
+    const itemText = (task.ITEMS || []).map(item => [
+        item.NAME,
+        item.EQUIPMENT_TEXT,
+        item.JUSTIFICATION,
+        (dict.item_categories || {})[item.CATEGORY] || item.CATEGORY,
+        (dict.units || {})[item.UNIT] || item.UNIT
+    ].filter(Boolean).join(' ')).join(' ');
+    return normalizeSearchText([
+        task.ID,
+        task.REQUEST_ID,
+        task.STEP_TITLE,
+        task.ROLE_CODE,
+        (dict.roles || {})[task.ROLE_CODE] || '',
+        task.INITIATOR_NAME,
+        task.INITIATOR_POSITION,
+        task.SITE_NAME,
+        task.DEPARTMENT_NAME,
+        (dict.request_types || {})[task.REQUEST_TYPE] || task.REQUEST_TYPE,
+        task.TOTAL_AMOUNT,
+        task.CURRENCY,
+        task.JUSTIFICATION,
+        itemText
+    ].filter(Boolean).join(' '));
+}
+
+function collectTaskFilters() {
+    return {
+        q: normalizeSearchText(document.getElementById('tasksQ')?.value || ''),
+        role: document.getElementById('tasksRole')?.value || ''
+    };
+}
+
+function taskMatchesFilters(task, filters) {
+    if (filters.role && String(task.ROLE_CODE || '') !== filters.role) return false;
+    if (!filters.q) return true;
+    const haystack = taskSearchText(task);
+    return filters.q.split(' ').filter(Boolean).every(token => haystack.includes(token));
+}
+
+function updateTaskFilterSummary(total, visible) {
+    const box = document.getElementById('tasksFilterSummary');
+    if (!box) return;
+    if (!total) {
+        box.textContent = 'Открытых заданий нет.';
+        return;
+    }
+    box.textContent = visible === total
+        ? `Показано ${visible} из ${total}.`
+        : `Найдено ${visible} из ${total}.`;
+}
+
+function focusTaskById(taskId) {
+    if (!taskId) return false;
+    const task = Array.from(document.querySelectorAll('.task')).find(item => String(item.dataset.task || '') === String(taskId));
+    if (!task) return false;
+    document.querySelectorAll('.task.target').forEach(item => item.classList.remove('target'));
+    task.classList.add('target');
+    if (document.getElementById('tasksView')?.classList.contains('active')) {
+        task.scrollIntoView({block: 'start', behavior: 'smooth'});
+        pendingTaskFocusId = '';
+    }
+    return true;
+}
+
+function renderTasks() {
     const box = document.getElementById('tasksContent');
-    box.className = 'notice';
-    box.textContent = 'Загружаем...';
-    const data = await api('tasks.php', {params:{action:'list'}});
-    if (!data.tasks.length) {
+    const filters = collectTaskFilters();
+    const visibleTasks = tasksCache.filter(task => taskMatchesFilters(task, filters));
+    updateTaskFilterSummary(tasksCache.length, visibleTasks.length);
+    if (!tasksCache.length) {
         box.className = 'notice';
         box.textContent = 'Нет заданий, ожидающих решения.';
         return;
     }
+    if (!visibleTasks.length) {
+        box.className = 'notice';
+        box.textContent = 'По фильтру ничего не найдено.';
+        return;
+    }
     box.className = 'task-list';
-    box.innerHTML = data.tasks.map(task => `
+    box.innerHTML = visibleTasks.map(task => `
         <div class="task" data-task="${escapeHtml(task.ID)}" data-role="${escapeHtml(task.ROLE_CODE)}">
             <div class="task-head">
                 <div>
@@ -1033,8 +1153,22 @@ async function loadTasks() {
                 <button type="button" class="secondary" data-decision="revision">Вернуть</button>
                 <button type="button" class="danger" data-decision="reject">Отклонить</button>
                 <button type="button" class="light" data-open-request="${escapeHtml(task.REQUEST_ID)}">Открыть заявку</button>
+                <a class="button-link" href="${escapeHtml(taskApprovalUrl(task))}">Ссылка на согласование</a>
             </div>
         </div>`).join('');
+    if (pendingTaskFocusId && !focusTaskById(pendingTaskFocusId) && document.getElementById('tasksView')?.classList.contains('active')) {
+        showNotice('Задание по ссылке уже выполнено, недоступно или скрыто текущим фильтром.', 'error');
+        pendingTaskFocusId = '';
+    }
+}
+
+async function loadTasks() {
+    const box = document.getElementById('tasksContent');
+    box.className = 'notice';
+    box.textContent = 'Загружаем...';
+    const data = await api('tasks.php', {params:{action:'list'}});
+    tasksCache = data.tasks || [];
+    renderTasks();
 }
 
 async function sendDecision(taskEl, decision) {
@@ -1375,6 +1509,14 @@ function bindEvents() {
     document.getElementById('resetRequest').addEventListener('click', () => { document.getElementById('requestForm').reset(); document.getElementById('requestId').value = ''; document.getElementById('companyKey').value = firstCompanyKey(); document.getElementById('attachmentsInput').value = ''; currentItems = []; selectedFiles = []; fillDictionaries(); renderSelectedFiles(); renderExistingAttachments([]); renderRoute([]); renderTimeline([]); });
     document.getElementById('refreshRequests').addEventListener('click', () => loadRequests().catch(err => showNotice(err.message, 'error')));
     document.getElementById('refreshTasks').addEventListener('click', () => loadTasks().catch(err => showNotice(err.message, 'error')));
+    document.getElementById('tasksFilter').addEventListener('submit', e => { e.preventDefault(); renderTasks(); });
+    document.getElementById('tasksQ').addEventListener('input', renderTasks);
+    document.getElementById('tasksRole').addEventListener('change', renderTasks);
+    document.getElementById('clearTasksFilter').addEventListener('click', () => {
+        document.getElementById('tasksQ').value = '';
+        document.getElementById('tasksRole').value = '';
+        renderTasks();
+    });
     document.getElementById('refreshAllRequests').addEventListener('click', () => loadAllRequests().catch(err => showNotice(err.message, 'error')));
     document.getElementById('allFilters').addEventListener('submit', e => { e.preventDefault(); loadAllRequests().catch(err => showNotice(err.message, 'error')); });
     document.getElementById('clearAllFilters').addEventListener('click', () => { document.getElementById('allFilters').reset(); renderAllSiteFilterOptions(''); loadAllRequests().catch(err => showNotice(err.message, 'error')); });
@@ -1519,6 +1661,10 @@ async function init() {
     fillDictionaries();
     setStatus('Авторизация подтверждена. Пользователь #' + data.user.id + (hasBx24Auth ? ' · BX24 auth' : ''), 'success');
     await Promise.all([loadRequests(), loadTasks()]);
+    if (initialView === 'tasks' || initialTaskId) {
+        document.querySelector('[data-view="tasksView"]')?.click();
+        return;
+    }
     if (initialRequestId) await openRequest(initialRequestId);
 }
 
