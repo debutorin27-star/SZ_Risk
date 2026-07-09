@@ -1035,6 +1035,14 @@ function taskApproveLabel(task) {
     return 'Согласовать';
 }
 
+function taskRejectDisabled(task) {
+    const stepCode = task.STEP_CODE || '';
+    const checklist = task.CHECKLIST_LABELS || {};
+    return stepCode === 'initiator_acceptance'
+        || (task.REQUEST_STATUS || '') === 'ACCEPTANCE'
+        || Object.keys(checklist).length > 0;
+}
+
 function taskApprovalUrl(task) {
     const url = new URL(location.href);
     url.searchParams.set('view', 'tasks');
@@ -1151,7 +1159,7 @@ function renderTasks() {
             <div class="actions task-actions">
                 <button type="button" data-decision="approve">${escapeHtml(taskApproveLabel(task))}</button>
                 <button type="button" class="secondary" data-decision="revision">Вернуть</button>
-                <button type="button" class="danger" data-decision="reject">Отклонить</button>
+                ${taskRejectDisabled(task) ? '' : '<button type="button" class="danger" data-decision="reject">Отклонить</button>'}
                 <button type="button" class="light" data-open-request="${escapeHtml(task.REQUEST_ID)}">Открыть заявку</button>
                 <a class="button-link" href="${escapeHtml(taskApprovalUrl(task))}">Ссылка на согласование</a>
             </div>

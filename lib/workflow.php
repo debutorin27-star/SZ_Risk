@@ -566,6 +566,26 @@ function prTaskAllowsItemApproval(array $task): bool
     return !prTaskHasChecklist($task);
 }
 
+function prTaskRejectDisabled(array $task, array $checklistLabels = []): bool
+{
+    $stepCode = (string)($task['STEP_CODE'] ?? '');
+    $requestStatus = (string)($task['REQUEST_STATUS'] ?? '');
+
+    if ($stepCode === 'initiator_acceptance' || $requestStatus === 'ACCEPTANCE') {
+        return true;
+    }
+
+    if ($checklistLabels) {
+        return true;
+    }
+
+    if (array_key_exists('CHECKLIST_LABELS', $task) && is_array($task['CHECKLIST_LABELS']) && $task['CHECKLIST_LABELS']) {
+        return true;
+    }
+
+    return array_key_exists('CHECKLIST_JSON', $task) && trim((string)($task['CHECKLIST_JSON'] ?? '')) !== '';
+}
+
 function prNormalizeTaskChecklist(array $labels, array $currentChecklist, array $incomingChecklist): array
 {
     $result = [];
@@ -669,16 +689,21 @@ function prApplyTaskDecision(
         throw new RuntimeException('Задание недоступно.');
     }
 
-    if (in_array($decision, ['reject', 'revision'], true) && trim($comment) === '') {
-        throw new RuntimeException('Комментарий обязателен при отклонении или возврате.');
-    }
-
     $requestId = (int)$task['REQUEST_ID'];
     $version = (int)$task['VERSION'];
     $roleCode = (string)$task['ROLE_CODE'];
     $checklistContext = prChecklistContextForTask($task);
     $checklistLabels = $checklistContext['labels'];
     $checklistTitle = $checklistContext['title'];
+
+    if ($decision === 'reject' && prTaskRejectDisabled($task, $checklistLabels)) {
+        throw new RuntimeException('На этапе чек-листа или приемки заявку нельзя отклонить.');
+    }
+
+    if (in_array($decision, ['reject', 'revision'], true) && trim($comment) === '') {
+        throw new RuntimeException('Комментарий обязателен при отклонении или возврате.');
+    }
+
     $availableIds = array_map('intval', $task['AVAILABLE_ITEM_IDS_ARRAY'] ?? []);
     $activeAvailableIds = array_values(array_intersect($availableIds, prActiveItemIds($requestId, $version)));
     $decisionAvailableIds = $activeAvailableIds ?: $availableIds;
