@@ -12,7 +12,9 @@ function prNotifyTextValue($value): string
 
 function prNotifyMoney($value, string $currency = PR_DEFAULT_CURRENCY): string
 {
-    return number_format((float)$value, 2, ',', ' ') . ' ' . $currency;
+    $number = (float)$value;
+    $decimals = abs($number - round($number)) > 0.00001 ? 2 : 0;
+    return number_format($number, $decimals, ',', ' ') . ' ' . $currency;
 }
 
 function prNotifyCompactItems(array $items, int $limit = 5, string $currency = PR_DEFAULT_CURRENCY): string

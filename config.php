@@ -155,7 +155,8 @@ function prRequestTypes(): array
         'service' => 'Услуга',
         'mixed' => 'Смешанная',
         'raw_materials' => 'Сырье',
-        'computers' => 'Компьютеры',
+        'computers' => 'Компьютеры и орг техника',
+        'stationery' => 'Канцелярия',
     ];
 }
 
@@ -193,6 +194,7 @@ function prRoleLabels(): array
         'director' => 'Директор',
         'expense_control' => 'Контроль расходов',
         'supply' => 'Снабжение',
+        'secretary' => 'Секретарь',
         'process_admin' => 'Администратор процесса',
         'observer' => 'Наблюдатель',
     ];
@@ -233,15 +235,17 @@ function prDefaultRouteSteps(): array
 function prSupplyChecklistLabels(): array
 {
     return [
-        'processed_1c' => 'Заявка обработана и внесена в 1С',
-        'contractor_details' => 'Реквизиты контрагента внесены',
-        'paid_waiting_delivery' => 'Оплачено, ожидаем поставку',
+        'accepted_to_work' => 'Принято в работу',
         'transferred_to_initiator' => 'Передана инициатору',
     ];
 }
 
 function prTaskChecklistLabels(string $roleCode, string $requestType = '', string $stepCode = ''): array
 {
+    if ($requestType === 'stationery') {
+        return $roleCode === 'secretary' && $stepCode === 'secretary_execution' ? prSupplyChecklistLabels() : [];
+    }
+
     if ($requestType === 'computers') {
         if ($roleCode === 'automation_head' && $stepCode !== 'automation_approval') {
             return prSupplyChecklistLabels();
@@ -254,6 +258,10 @@ function prTaskChecklistLabels(string $roleCode, string $requestType = '', strin
 
 function prTaskChecklistTitle(string $roleCode, string $requestType = '', string $stepCode = ''): string
 {
+    if ($requestType === 'stationery' && $roleCode === 'secretary') {
+        return 'Чек-лист секретаря';
+    }
+
     if ($requestType === 'computers' && $roleCode === 'automation_head') {
         return 'Чек-лист отдела автоматизации';
     }
@@ -268,6 +276,23 @@ function prTaskChecklistTitle(string $roleCode, string $requestType = '', string
 function prRoutePresets(): array
 {
     return [
+        [
+            'code' => 'stationery',
+            'title' => 'Канцелярия: секретарь',
+            'sort' => 40,
+            'company_key' => 'egida_plus',
+            'site_key' => '',
+            'request_type' => 'stationery',
+            'min_amount' => '',
+            'max_amount' => '',
+            'initiator_position' => '',
+            'item_category' => '',
+            'steps' => [
+                ['code' => 'secretary_approval', 'role' => 'secretary', 'title' => 'Согласование секретарем', 'status' => 'APPROVAL'],
+                ['code' => 'secretary_execution', 'role' => 'secretary', 'title' => 'Исполнение заявки секретарем', 'status' => 'EXECUTION'],
+                ['code' => 'initiator_acceptance', 'role' => 'initiator', 'title' => 'Приемка выполнения инициатором', 'status' => 'ACCEPTANCE'],
+            ],
+        ],
         [
             'code' => 'krasnoborskaya_standard',
             'title' => 'Красноборская: стандартный маршрут',
@@ -384,7 +409,7 @@ function prRoutePresets(): array
         ],
         [
             'code' => 'computers',
-            'title' => 'Компьютеры: отдел автоматизации',
+            'title' => 'Компьютеры и орг техника: отдел автоматизации',
             'sort' => 60,
             'company_key' => 'egida_plus',
             'site_key' => '',
@@ -401,7 +426,7 @@ function prRoutePresets(): array
         ],
         [
             'code' => 'computers_expense_control',
-            'title' => 'Компьютеры свыше 100 000: отдел автоматизации и контроль расходов',
+            'title' => 'Компьютеры и орг техника свыше 100 000: отдел автоматизации и контроль расходов',
             'sort' => 50,
             'company_key' => 'egida_plus',
             'site_key' => '',

@@ -387,7 +387,12 @@ function statusBadgeHtml(status = '') {
 
 function formatMoney(value, currency = 'RUB') {
     const number = Number(value || 0);
-    return `${number.toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2})} ${currency || ''}`.trim();
+    const hasFraction = Math.abs(number - Math.trunc(number)) > 0.0001;
+    const formatted = number.toLocaleString('ru-RU', {
+        minimumFractionDigits: hasFraction ? 2 : 0,
+        maximumFractionDigits: 2
+    }).replace(/\u00a0/g, ' ');
+    return `${formatted} ${currency || ''}`.trim();
 }
 
 function setStatus(text, type = '') {

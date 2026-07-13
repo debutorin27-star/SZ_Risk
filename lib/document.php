@@ -9,7 +9,9 @@ function prDocumentH($value): string
 
 function prDocumentMoney($value, string $currency = 'RUB'): string
 {
-    return number_format((float)$value, 2, ',', ' ') . ' ' . $currency;
+    $number = (float)$value;
+    $decimals = abs($number - round($number)) > 0.00001 ? 2 : 0;
+    return number_format($number, $decimals, ',', ' ') . ' ' . $currency;
 }
 
 function prDocumentQty($value): string
@@ -46,7 +48,8 @@ function prDocumentSubject(array $request): string
         'service' => 'услугу',
         'mixed' => 'закупку',
         'raw_materials' => 'сырье',
-        'computers' => 'компьютеры',
+        'computers' => 'компьютеры и орг технику',
+        'stationery' => 'канцелярию',
     ];
 
     return $subjects[$type] ?? (prRequestTypes()[$type] ?? 'закупку');

@@ -164,19 +164,37 @@ function prNormalizeRouteFinalSteps(array $steps, bool $includeWarehouse): array
     return $normalized;
 }
 
+function prRequestInitiatorIsSecretary(array $request): bool
+{
+    $text = trim((string)($request['INITIATOR_POSITION'] ?? '') . ' ' . (string)($request['DEPARTMENT_NAME'] ?? ''));
+    return prTextContains($text, 'секретар');
+}
+
 function prApplySpecialRouteRules(array $steps, array $request): array
 {
     $requestType = (string)($request['REQUEST_TYPE'] ?? '');
     $amount = (float)($request['TOTAL_AMOUNT'] ?? 0);
+    $includeWarehouse = !prRequestInitiatorIsSecretary($request);
 
-    if ($requestType === 'raw_materials') {
+    if ($requestType === 'stationery') {
         return [
-            prWorkflowStep('profile_approval', 'profile_approver', 'Профильное согласование', 'APPROVAL'),
-            prWorkflowStep('plant_director', 'director', 'Согласование директором завода', 'APPROVAL'),
-            prWorkflowStep('warehouse', 'warehouse', 'Проверка склада', 'WAREHOUSE'),
-            prWorkflowStep('supply', 'supply', 'Задача снабжению', 'SUPPLY'),
+            prWorkflowStep('secretary_approval', 'secretary', 'Согласование секретарем', 'APPROVAL'),
+            prWorkflowStep('secretary_execution', 'secretary', 'Исполнение заявки секретарем', 'EXECUTION'),
             prWorkflowStep('initiator_acceptance', 'initiator', 'Приемка выполнения инициатором', 'ACCEPTANCE'),
         ];
+    }
+
+    if ($requestType === 'raw_materials') {
+        $route = [
+            prWorkflowStep('profile_approval', 'profile_approver', 'Профильное согласование', 'APPROVAL'),
+            prWorkflowStep('plant_director', 'director', 'Согласование директором завода', 'APPROVAL'),
+        ];
+        if ($includeWarehouse) {
+            $route[] = prWorkflowStep('warehouse', 'warehouse', 'Проверка склада', 'WAREHOUSE');
+        }
+        $route[] = prWorkflowStep('supply', 'supply', 'Задача снабжению', 'SUPPLY');
+        $route[] = prWorkflowStep('initiator_acceptance', 'initiator', 'Приемка выполнения инициатором', 'ACCEPTANCE');
+        return $route;
     }
 
     if ($requestType === 'computers') {
@@ -191,7 +209,7 @@ function prApplySpecialRouteRules(array $steps, array $request): array
         return $route;
     }
 
-    return prNormalizeRouteFinalSteps($steps, true);
+    return prNormalizeRouteFinalSteps($steps, $includeWarehouse);
 }
 
 function prActiveItemIds(int $requestId, int $version): array
